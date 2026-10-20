@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TarkovTacticalMap.Network</RootNamespace>
+    <AssemblyName>TarkovTacticalMap.Network</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TarkovTacticalMap.Core\TarkovTacticalMap.Core.csproj" />
+  </ItemGroup>
+
+</Project>

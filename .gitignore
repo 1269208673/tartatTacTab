@@ -1,52 +1,44 @@
-# Prerequisites
-*.d
+# ── .NET 构建产物 ─────────────────────────────────────────
+bin/
+obj/
+publish/
+artifacts/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+# ── Visual Studio / Rider / VS Code ──────────────────────
+.vs/
+.vscode/
+.idea/
+*.rsuser
+_ReSharper*/
+*.DotSettings.user
 
-# Linker output
-*.ilk
-*.map
-*.exp
+# ── 测试与覆盖率 ─────────────────────────────────────────
+TestResults/
+*.trx
+coverage*.xml
+coverage*.json
+*.coverlet.json
 
-# Precompiled Headers
-*.gch
-*.pch
+# ── NuGet ───────────────────────────────────────────────
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.assets.json
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+# ── 临时文件 ─────────────────────────────────────────────
+*.tmp
+*.log
+*.bak
+*.cache
+Thumbs.db
+desktop.ini
+.DS_Store
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+# ── 本地地图图片 / 缓存（不要提交到仓库）────────────────
+*.img
+maps/
