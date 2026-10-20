@@ -96,7 +96,8 @@ dotnet publish src/TarkovTacticalMap.App/TarkovTacticalMap.App.csproj `
 | 操作 | 行为 |
 | --- | --- |
 | 鼠标滚轮 | 以鼠标位置为中心缩放，0.2x ~ 10x |
-| 中键拖拽 / 空格+左键拖拽 | 平移画布 |
+| **右键拖拽** / 空格+左键拖拽 | 平移画布 |
+| **中键点击** | 快速删除光标下最上层的标记（需权限；只删一个，不进入选中/拖拽状态） |
 | 工具栏选图标 + 左键点击 | 放置该 IconId 的 Point 标记 |
 | 箭头 / 圆圈 / 方框 / 直线 | 按下拖拽释放创建（方向、半径、宽高由释放点决定） |
 | 文本工具 + 左键点击 | 弹出输入框，确定后放置文本标记 |
@@ -242,9 +243,9 @@ dotnet test TarkovTacticalMap.sln --filter "FullyQualifiedName~NetworkIntegratio
 | `SessionIntegrationTests` | App 会话门面：房主+客户端全流程（图片分发与缓存命中）、标记同步与权限、口令错误抛异常、离线模式、缓存读写/损坏/路径穿越防护 |
 | `RenderSnapshotTests` | 真实 SkiaSharp 渲染到 `SKBitmap` 并断言关键像素颜色（六种标记 + 五种图标 + 网格 + 选中控制点）、未知 IconId / 未知 MarkerType 回退 |
 | `IconShapeTests` | 图标栅格化成 ASCII 字符画（写入 `artifacts/renders/icons-ascii.txt`），断言靶心环、钥匙孔、折角等几何特征 |
-| `UiSmokeTests` | STA 线程加载 `App.xaml`、构造并显示首页与主窗口、**断言无数据绑定错误**、房主↔客户端在同一 UI 线程上的跨线程同步（Dispatcher 封送） |
+| `UiSmokeTests` | STA 线程加载 `App.xaml`、构造并显示首页与主窗口、**断言无数据绑定错误**、**菜单弹层真实渲染 + 深底浅字像素统计（防「白底白字」回归）**、房主↔客户端在同一 UI 线程上的跨线程同步（Dispatcher 封送）、中键快速删除与 Delete 键删除 |
 
-渲染快照会写入 `artifacts/renders/`（`scene-all-markers.png`、`scene-grid-selection.png`、`icons-sheet.png`、`icons-ascii.txt`），便于人工核对。
+渲染快照会写入 `artifacts/renders/`（`scene-all-markers.png`、`scene-grid-selection.png`、`icons-sheet.png`、`icons-ascii.txt`、`menu-popup.png`），便于人工核对。
 
 ### CI
 
@@ -257,7 +258,7 @@ win-x64 自包含单文件发布 → 上传 `TarkovTacticalMap.exe` 产物。
 
 | 里程碑 | 状态 | 实现要点 |
 | --- | --- | --- |
-| **M1** 地图渲染与本地标记 | ✅ | WPF + `SKElement`，滚轮缩放 / 中键平移，网格与 A/B/C、1/2/3 标签，六种标记类型 + 五种内置图标，拖拽创建与控制点调整，选中/移动/编辑/删除 |
+| **M1** 地图渲染与本地标记 | ✅ | WPF + `SKElement`，滚轮缩放 / **右键拖拽平移**，网格与 A/B/C、1/2/3 标签，六种标记类型 + 五种内置图标，拖拽创建与控制点调整，**中键快速删除**，选中/移动/编辑/删除 |
 | **M2** TCP 骨架与全量同步 | ✅ | `TcpListener` / `TcpClient`，`HELLO` / `WELCOME` / `ERROR`，新客户端拿到 `MapInfo` + 全量 `Marker[]` |
 | **M3** 增量广播 | ✅ | `MARKER_ADD/UPDATE/DELETE` 经房主校验后广播，权限校验，幂等处理 |
 | **M4** 地图图片分发 | ✅ | SHA-256、本地缓存、`MAP_REQUEST` / `MAP_CHUNK` 64KB 分块、缓存命中跳过传输 |
@@ -290,6 +291,8 @@ win-x64 自包含单文件发布 → 上传 `TarkovTacticalMap.exe` 产物。
 8. **控制点容差**：控制点绘制半径 7px、命中容差 10px（文档建议 6–8px），略放宽以便触控板操作。
 9. **重连后的 UI 提示**：重连成功会清空本地标记并用全量快照重建，状态栏提示「已重新连接房主，状态已用全量快照重建」。
 10. **`--offline` 命令行参数**：非文档要求的便捷入口，便于快速自测。
+11. **鼠标按键与文档不同（按使用方要求调整）**：文档 6.3 写的是「中键拖拽平移」，实际实现为 **右键拖拽平移**（更符合常见地图软件习惯，也避免与触控板中键冲突），并把 **中键改成快速删除光标下的标记**（等价于「左键选中 + Delete」，但一步完成）。空格+左键平移仍然保留。
+12. **菜单弹层配色为自定义模板**：WPF 默认菜单弹层使用系统浅色画刷，与深色主题的浅色文字叠加会「白底白字」。已为 `MenuItem` 编写完整深色模板（含勾选标记、子菜单箭头、分隔线），并用自动化测试断言「深底浅字」（像素统计 + WCAG 对比度 ≥ 4.5）。
 
 ## 已知限制
 

@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private MapPoint _dragStartNorm;
     private MapPoint _dragStartSurface;
     private bool _spaceDown;
+    private MouseButton _dragButton;
     private bool _cleanupStarted;
 
     public MainWindow(MainViewModel viewModel, TacticalSession session, AppSettings settings)
@@ -118,11 +119,26 @@ public partial class MainWindow : Window
         _lastDip = dip;
         var surface = ToSurface(dip);
 
-        var wantsPan = e.ChangedButton == MouseButton.Middle ||
+        // 已有拖拽进行中时，忽略其它按键按下（避免误删 / 误切换）
+        if (_drag != DragMode.None) return;
+
+        // 中键：快速删除光标下的标记（不改选中、不进入拖拽）
+        if (e.ChangedButton == MouseButton.Middle)
+        {
+            _ = _vm.DeleteMarkerAtAsync(surface.X, surface.Y);
+            InvalidateCanvas();
+            e.Handled = true;
+            return;
+        }
+
+        // 右键拖拽 / 空格+左键拖拽：平移画布
+        var wantsPan = e.ChangedButton == MouseButton.Right ||
                        (e.ChangedButton == MouseButton.Left && _spaceDown);
         if (wantsPan)
         {
             _drag = DragMode.Pan;
+            _dragButton = e.ChangedButton;
+            CanvasView.Cursor = Cursors.Hand;
             CanvasView.CaptureMouse();
             e.Handled = true;
             return;
@@ -131,6 +147,7 @@ public partial class MainWindow : Window
         if (e.ChangedButton != MouseButton.Left) return;
         if (!_vm.Viewport.IsValid) return;
 
+        _dragButton = e.ChangedButton;
         _dragStartSurface = surface;
         _dragStartNorm = ToNormalizedClamped(surface);
 
@@ -236,8 +253,11 @@ public partial class MainWindow : Window
     private void OnCanvasMouseUp(object sender, MouseButtonEventArgs e)
     {
         if (_drag == DragMode.None) return;
+        // 只响应「发起拖拽的那个键」，避免另一个键松开时误结束当前操作
+        if (e.ChangedButton != _dragButton) return;
 
         CanvasView.ReleaseMouseCapture();
+        CanvasView.Cursor = Cursors.Arrow;
         var mode = _drag;
         _drag = DragMode.None;
 

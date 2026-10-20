@@ -1,6 +1,10 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using TarkovTacticalMap.App.Rendering;
 using TarkovTacticalMap.App.Services;
@@ -93,6 +97,111 @@ public class UiSmokeTests
                 viewModel.NudgeRotation(30f);
                 Pump();
                 Assert.Equal(30f, viewModel.Markers[0].Rotation, 3);
+
+                // 菜单弹层配色：必须是深底浅字（回归测试「白底白字」）
+                var menu = window.FindName("MainMenu") as Menu;
+                Assert.NotNull(menu);
+                var fileMenu = (MenuItem)menu!.Items[0];
+                Assert.Equal(MenuItemRole.TopLevelHeader, fileMenu.Role);
+                fileMenu.ApplyTemplate();
+
+                var popup = fileMenu.Template.FindName("PART_Popup", fileMenu) as Popup;
+                Assert.NotNull(popup);
+                var popupBorder = popup!.Child as Border;
+                Assert.NotNull(popupBorder);
+
+                var popupBackground = ((SolidColorBrush)popupBorder!.Background).Color;
+                var headerForeground = ((SolidColorBrush)fileMenu.Foreground).Color;
+                Assert.True(RelativeLuminance(popupBackground) < 0.25,
+                    $"菜单弹层背景应为深色，实际 {popupBackground}");
+                Assert.True(ContrastRatio(headerForeground, popupBackground) >= 4.5,
+                    $"一级菜单文字对比度不足：前景 {headerForeground} / 背景 {popupBackground}（{ContrastRatio(headerForeground, popupBackground):F2}）");
+
+                var subItems = fileMenu.Items.OfType<MenuItem>().ToList();
+                Assert.NotEmpty(subItems);
+                foreach (var subItem in subItems)
+                {
+                    var subForeground = ((SolidColorBrush)subItem.Foreground).Color;
+                    Assert.True(ContrastRatio(subForeground, popupBackground) >= 4.5,
+                        $"子菜单「{subItem.Header}」对比度不足：前景 {subForeground} / 背景 {popupBackground}（{ContrastRatio(subForeground, popupBackground):F2}）");
+                }
+
+                // 真正把弹层渲染一次，用像素统计客观验证「深底浅字」，并落盘截图供人工核对
+                fileMenu.IsSubmenuOpen = true;
+                Pump(10);
+                var popupWidth = (int)Math.Round(popupBorder.ActualWidth);
+                var popupHeight = (int)Math.Round(popupBorder.ActualHeight);
+                Assert.True(popupWidth > 40 && popupHeight > 20,
+                    $"菜单弹层未完成布局：{popupWidth}x{popupHeight}");
+
+                var rtb = new RenderTargetBitmap(popupWidth, popupHeight, 96, 96, PixelFormats.Pbgra32);
+                rtb.Render(popupBorder);
+                var stride = popupWidth * 4;
+                var pixels = new byte[stride * popupHeight];
+                rtb.CopyPixels(pixels, stride, 0);
+
+                var total = popupWidth * popupHeight;
+                var darkPixels = 0;
+                var lightPixels = 0;
+                for (var i = 0; i < pixels.Length; i += 4)
+                {
+                    if (pixels[i + 3] < 32) continue; // 透明像素不计
+                    var luminance = (0.2126 * pixels[i + 2] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i]) / 255.0;
+                    if (luminance < 0.35) darkPixels++;
+                    else if (luminance > 0.6) lightPixels++;
+                }
+
+                _output.WriteLine($"菜单弹层像素统计：{popupWidth}x{popupHeight}，深色 {darkPixels}，浅色 {lightPixels}");
+                Assert.True(darkPixels > total * 0.5, $"菜单弹层背景应占多数深色像素（{darkPixels}/{total}）");
+                Assert.True(lightPixels > 30, $"菜单弹层应有浅色文字像素（{lightPixels}/{total}）");
+                Assert.True(lightPixels < total * 0.3, $"浅色像素过多，疑似白底（{lightPixels}/{total}）");
+
+                // 浅色像素应分布在多行上（说明是多行菜单文字，而不是一处噪点）
+                var rowsWithText = 0;
+                for (var y = 0; y < popupHeight; y++)
+                {
+                    var rowLight = 0;
+                    for (var x = 0; x < popupWidth; x++)
+                    {
+                        var i = (y * popupWidth + x) * 4;
+                        if (pixels[i + 3] < 32) continue;
+                        var luminance = (0.2126 * pixels[i + 2] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i]) / 255.0;
+                        if (luminance > 0.6) rowLight++;
+                    }
+                    if (rowLight >= 4) rowsWithText++;
+                    _output.WriteLine($"  第 {y,3} 行浅色像素 {rowLight}");
+                }
+                Assert.True(rowsWithText >= 6, $"菜单文字行数过少（{rowsWithText}），疑似没有渲染出文字");
+
+                var renderDir = ArtifactDirectory();
+                Directory.CreateDirectory(renderDir);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(rtb));
+                var menuPng = Path.Combine(renderDir, "menu-popup.png");
+                using (var stream = File.Create(menuPng)) encoder.Save(stream);
+                _output.WriteLine("菜单弹层截图：" + menuPng);
+
+                fileMenu.IsSubmenuOpen = false;
+                Pump(3);
+
+                // 中键快速删除：命中屏幕坐标后删除最上层标记
+                viewModel.Viewport.SetCanvas(800f, 600f);
+                viewModel.Viewport.SetImage(320, 240);
+                var screen = viewModel.Viewport.NormalizedToScreen(prototype.X, prototype.Y);
+                Assert.True(viewModel.DeleteMarkerAtAsync(screen.X, screen.Y).GetAwaiter().GetResult());
+                Pump();
+                Assert.Empty(viewModel.Markers);
+
+                // 中键点在空白处：什么也不删
+                Assert.False(viewModel.DeleteMarkerAtAsync(5f, 5f).GetAwaiter().GetResult());
+                Pump();
+
+                // Delete 键路径（先重新放一个）
+                var second = viewModel.CreatePrototype(ToolKind.Text, new Core.Geometry.MapPoint(0.6f, 0.6f), "文本标记");
+                viewModel.AddMarkerAsync(second).GetAwaiter().GetResult();
+                Pump();
+                Assert.Single(viewModel.Markers);
+                Assert.Equal(second.Id, viewModel.SelectedMarkerId);
 
                 viewModel.DeleteSelectedAsync().GetAwaiter().GetResult();
                 Pump();
@@ -189,6 +298,42 @@ public class UiSmokeTests
         {
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         }
+    }
+
+    /// <summary>WCAG 相对亮度。</summary>
+    private static double RelativeLuminance(Color color)
+    {
+        static double Channel(byte value)
+        {
+            var s = value / 255.0;
+            return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * Channel(color.R) + 0.7152 * Channel(color.G) + 0.0722 * Channel(color.B);
+    }
+
+    /// <summary>WCAG 对比度（4.5 以上才算正文可读）。</summary>
+    private static double ContrastRatio(Color foreground, Color background)
+    {
+        var a = RelativeLuminance(foreground);
+        var b = RelativeLuminance(background);
+        var lighter = Math.Max(a, b);
+        var darker = Math.Min(a, b);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    private static string ArtifactDirectory()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (var i = 0; i < 8 && !string.IsNullOrEmpty(dir); i++)
+        {
+            if (File.Exists(Path.Combine(dir, "TarkovTacticalMap.sln")))
+            {
+                return Path.Combine(dir, "artifacts", "renders");
+            }
+            dir = Path.GetDirectoryName(dir.TrimEnd(Path.DirectorySeparatorChar)) ?? string.Empty;
+        }
+        return Path.Combine(Path.GetTempPath(), "tarkov-tactical-map-renders");
     }
 
     /// <summary>在 STA 线程上等待任务完成，期间持续泵消息（不能直接阻塞，否则会自我死锁）。</summary>

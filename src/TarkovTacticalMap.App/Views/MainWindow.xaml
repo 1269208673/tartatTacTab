@@ -11,7 +11,7 @@
     <DockPanel>
 
         <!-- 菜单栏 -->
-        <Menu DockPanel.Dock="Top">
+        <Menu x:Name="MainMenu" DockPanel.Dock="Top">
             <MenuItem Header="文件(_F)">
                 <MenuItem Header="新建房间…" Click="OnNewRoomClick" />
                 <MenuItem Header="加入房间…" Click="OnJoinRoomClick" />
@@ -206,9 +206,9 @@
                         <TextBlock Text="{Binding HostAddressText}" TextWrapping="Wrap"
                                    Foreground="{StaticResource TextSecondary}" />
 
-                        <TextBlock Text="快捷键" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Text="鼠标 / 快捷键" Style="{StaticResource SectionTitle}" />
                         <TextBlock Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"
-                                   Text="滚轮：缩放 / 中键或空格+左键：平移 / Delete：删除选中 / Esc：取消选中 / Ctrl+0：重置视图" />
+                                   Text="滚轮：缩放 / 右键拖拽或空格+左键：平移 / 中键：快速删除光标下的标记 / 左键：选择或放置 / 双击文本：编辑 / Delete：删除选中 / Esc：取消选中 / Ctrl+0：重置视图" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>

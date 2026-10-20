@@ -774,6 +774,38 @@ public sealed partial class MainViewModel : ObservableObject
         return id is null ? Task.CompletedTask : DeleteMarkerAsync(id);
     }
 
+    /// <summary>
+    /// 中键快速删除：删除屏幕坐标下最上层的标记（需要权限）。
+    /// 返回是否真的删除了标记。
+    /// </summary>
+    public async Task<bool> DeleteMarkerAtAsync(float screenX, float screenY)
+    {
+        var id = HitTestMarker(screenX, screenY);
+        if (id is null)
+        {
+            Post(() => SetStatus("中键：此处没有标记"));
+            return false;
+        }
+
+        var marker = FindMarker(id);
+        var session = _session;
+        if (marker is null || session is null) return false;
+
+        if (!session.CanModify(marker))
+        {
+            Post(() => SetStatus($"标记由「{PlayerDisplayName(marker.OwnerId)}」创建，无权删除"));
+            return false;
+        }
+
+        Post(() => SelectMarker(id));
+        var deleted = await DeleteMarkerAsync(id).ConfigureAwait(false);
+        if (deleted)
+        {
+            Post(() => SetStatus($"已删除{DescribeMarker(marker)}标记"));
+        }
+        return deleted;
+    }
+
     // ── 视图 ────────────────────────────────────────────────────────────
 
     public void ResetView()

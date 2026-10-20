@@ -143,6 +143,110 @@
                 <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
                 <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
                 <Setter Property="FontSize" Value="12" />
+                <Setter Property="Padding" Value="2,1" />
+            </Style>
+
+            <!--
+                MenuItem 必须自带完整模板：Aero2 默认模板的下拉弹层用的是系统浅色画刷，
+                与本项目的浅色文字（TextPrimary）叠加会变成「白底白字」。
+                这里统一改成深色弹层 + 浅色文字，并保留勾选标记、子菜单箭头与快捷键栏。
+            -->
+            <Style TargetType="MenuItem">
+                <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Padding" Value="8,3" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="MenuItem">
+                            <Grid>
+                                <Border x:Name="Root" Background="{TemplateBinding Background}"
+                                        Padding="{TemplateBinding Padding}" CornerRadius="3" SnapsToDevicePixels="True">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="20" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 勾选标记 -->
+                                        <TextBlock x:Name="CheckMark" Grid.Column="0" Text="✔"
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   FontSize="11" Visibility="Collapsed" />
+
+                                        <!-- 图标（一般不用） -->
+                                        <ContentPresenter x:Name="IconHost" Grid.Column="0" ContentSource="Icon"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                                        <!-- 标题 -->
+                                        <ContentPresenter x:Name="HeaderHost" Grid.Column="1" ContentSource="Header"
+                                                          RecognizesAccessKey="True" VerticalAlignment="Center"
+                                                          Margin="2,0,10,0" />
+
+                                        <!-- 快捷键（InputGestureText） -->
+                                        <TextBlock x:Name="GestureText" Grid.Column="2" Text="{TemplateBinding InputGestureText}"
+                                                   Foreground="{StaticResource TextSecondary}"
+                                                   VerticalAlignment="Center" Margin="8,0,4,0" />
+
+                                        <!-- 子菜单箭头 -->
+                                        <TextBlock x:Name="Arrow" Grid.Column="3" Text="▸"
+                                                   Foreground="{StaticResource TextSecondary}"
+                                                   VerticalAlignment="Center" Margin="6,0,0,0" Visibility="Collapsed" />
+                                    </Grid>
+                                </Border>
+
+                                <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsSubmenuOpen}"
+                                       AllowsTransparency="True" Focusable="False" PopupAnimation="None"
+                                       HorizontalOffset="0" VerticalOffset="2">
+                                    <Border x:Name="PopupBorder" Background="{StaticResource PanelBg}"
+                                            BorderBrush="{StaticResource BorderSoft}" BorderThickness="1"
+                                            CornerRadius="4" Padding="4" MinWidth="180">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="Role" Value="TopLevelHeader">
+                                    <Setter TargetName="PART_Popup" Property="Placement" Value="Bottom" />
+                                    <Setter TargetName="PART_Popup" Property="HorizontalOffset" Value="0" />
+                                    <Setter TargetName="PART_Popup" Property="VerticalOffset" Value="2" />
+                                </Trigger>
+                                <Trigger Property="Role" Value="SubmenuHeader">
+                                    <Setter TargetName="Arrow" Property="Visibility" Value="Visible" />
+                                    <Setter TargetName="PART_Popup" Property="Placement" Value="Right" />
+                                    <Setter TargetName="PART_Popup" Property="HorizontalOffset" Value="-4" />
+                                    <Setter TargetName="PART_Popup" Property="VerticalOffset" Value="-4" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource PanelBg3}" />
+                                </Trigger>
+                                <Trigger Property="IsSubmenuOpen" Value="True">
+                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource PanelBg3}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.45" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- 菜单里的分隔线（浅色系统默认会非常突兀） -->
+            <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Separator">
+                            <Border Height="1" Margin="6,4" Background="{StaticResource BorderSoft}" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <!-- 状态栏 -->
