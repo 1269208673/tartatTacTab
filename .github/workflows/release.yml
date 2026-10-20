@@ -1,14 +1,5 @@
 name: release
 
-# 每个版本打一个 tag（如 v2.2.0）即可自动：
-#   1) 编译 win-x64 自包含单文件 exe
-#   2) 压缩成 TarkovTacticalMap-vX.Y.Z-win-x64.zip
-#   3) 创建 GitHub Release 并上传该 exe（附带自动生成的变更说明）
-#
-# 用法：
-#   git tag v2.2.0 && git push origin v2.2.0
-# 也可以在 Actions 页面手动 Run workflow 并填版本号。
-
 on:
   push:
     tags:
@@ -79,20 +70,19 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 把多行文本放在环境变量里，避免 YAML 缩进报错
+          RELEASE_NOTES: |
+            自包含单文件可执行程序（win-x64），队友无需安装 .NET 运行时。
+            
+            - 解压/直接运行 TarkovTacticalMap.exe 即可
+            - 房主首次监听端口时，Windows 可能弹出防火墙询问，请允许 TCP 入站
+            - 队友之间先用 ZeroTier / Tailscale / Radmin VPN 等工具组网，再输入房主 IP + 端口 + 口令
         run: |
           $tag = "${{ steps.version.outputs.tag }}"
           $exe = "./publish/TarkovTacticalMap.exe"
           $zip = "./${{ steps.pack.outputs.zip }}"
 
-          $notes = @"
-自包含单文件可执行程序（win-x64），队友无需安装 .NET 运行时。
-
-- 解压/直接运行 ``TarkovTacticalMap.exe`` 即可
-- 房主首次监听端口时，Windows 可能弹出防火墙询问，请允许 TCP 入站
-- 队友之间先用 ZeroTier / Tailscale / Radmin VPN 等工具组网，再输入房主 IP + 端口 + 口令
-"@
-
           gh release create $tag $exe $zip `
             --title "塔塔战术平板 $tag" `
             --generate-notes `
-            --notes $notes
+            --notes "$env:RELEASE_NOTES"
