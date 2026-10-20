@@ -246,6 +246,11 @@ dotnet test TarkovTacticalMap.sln --filter "FullyQualifiedName~NetworkIntegratio
 
 渲染快照会写入 `artifacts/renders/`（`scene-all-markers.png`、`scene-grid-selection.png`、`icons-sheet.png`、`icons-ascii.txt`），便于人工核对。
 
+### CI
+
+`.github/workflows/build.yml` 在 push / PR 时执行：Release 编译 → 无头测试（跳过需要交互式桌面的 `UiSmokeTests`）→
+win-x64 自包含单文件发布 → 上传 `TarkovTacticalMap.exe` 产物。
+
 ---
 
 ## 里程碑完成情况

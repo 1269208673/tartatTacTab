@@ -1,0 +1,41 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 编译
+        run: dotnet build TarkovTacticalMap.sln -c Release --nologo
+
+      # UI 冒烟测试需要交互式桌面（会真正显示 WPF 窗口），在 CI 上跳过；
+      # 其余测试（协议 / 几何 / 状态 / 分块 / 回环网络 / SkiaSharp 渲染快照）都可无头运行。
+      - name: 单元测试与集成测试
+        run: dotnet test TarkovTacticalMap.sln -c Release --no-build --nologo --filter "FullyQualifiedName!~UiSmokeTests"
+
+      - name: 自包含发布
+        run: >
+          dotnet publish src/TarkovTacticalMap.App/TarkovTacticalMap.App.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=None -o publish --nologo
+
+      - name: 上传可执行文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: TarkovTacticalMap-win-x64
+          path: publish/TarkovTacticalMap.exe
+          if-no-files-found: error
