@@ -2,8 +2,10 @@
 本软件由DeepSeekHarness协助开发QAQ
 小队内部使用的**战术地图白板**。玩家手动上传地图图片，在图上放置语义图标、文本、箭头、直线、圆圈、方框，
 所有标记通过 TCP 在房主与队友之间可靠同步；房主是唯一权威，冲突串行处理，不需要 CRDT。
-<img width="200" height="200" alt="IMG_2101" src="https://github.com/user-attachments/assets/fb7a36d6-50c9-47dc-bbac-0a7db6059c90" />
+
+<img width="200" height="300" alt="IMG_2101" src="https://github.com/user-attachments/assets/fb7a36d6-50c9-47dc-bbac-0a7db6059c90" />
 自愿赞助收款码↑↑↑
+
 > 需求与设计依据：仓库根目录的 [AGENTS.md](AGENTS.md)。
 
 
