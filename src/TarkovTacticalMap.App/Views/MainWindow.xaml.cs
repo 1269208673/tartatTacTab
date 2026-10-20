@@ -489,14 +489,6 @@ public partial class MainWindow : Window
                 draft.Size = displayWidth > 1e-4f ? Math.Clamp(distance / displayWidth, 0f, MarkerValidator.MaxSize) : origin.Size;
                 break;
             }
-            case HandleKind.Size:
-            {
-                // 图标宽度 / 字号：拖右下角圆点直接改 Size
-                draft.Size = Math.Clamp(
-                    MarkerGeometry.ComputeSizeFromHandle(origin, surface, _vm.Viewport),
-                    MarkerDefaults.PointSize * 0.2f, MarkerValidator.MaxSize);
-                break;
-            }
         }
 
         _vm.Draft = draft;
@@ -770,10 +762,12 @@ public partial class MainWindow : Window
 
     private void OnAboutClick(object sender, RoutedEventArgs e)
     {
+        var version = typeof(MainWindow).Assembly.GetName().Version;
         MessageBox.Show(
-            "塔塔战术平板 · Tarkov Tactical Map\n\n" +
+            "塔塔战术平板 · Tarkov Tactical Map\n" +
+            "版本 v" + (version is null ? "?" : $"{version.Major}.{version.Minor}.{version.Build}") + "\n\n" +
             "小队内部使用的战术地图白板工具。\n" +
-            "手动上传地图图片，放置语义图标 / 文本 / 箭头 / 圆圈 / 方框，\n" +
+            "手动上传地图图片，放置语义图标 / 文本 / 箭头 / 圆圈 / 方框 / 自由笔画，\n" +
             "所有标记通过 TCP 在房主与队友之间可靠同步。\n\n" +
             "不读取游戏内存 / 日志 / 网络封包，不注入进程，不做自动房间发现。\n" +
             "协议版本 v" + Core.Protocol.ProtocolConstants.ProtocolVersion + "\n\n" +
@@ -785,19 +779,51 @@ public partial class MainWindow : Window
 
     // ── 关闭清理 ────────────────────────────────────────────────────────
 
-    private async void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    /// <summary>
+    /// 关闭时的清理。
+    /// 注意：这里绝对不能在 Closing 期间直接调用 Close()/Show() 或改可见性
+    /// （会抛 InvalidOperationException：窗口关闭期间无法执行这些操作），
+    /// 所以先 e.Cancel 拦一下，等清理完成后再通过 Dispatcher 排到下一轮关闭。
+    /// </summary>
+    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_cleanupStarted) return;
+        if (_cleanupStarted) return; // 第二次进来（清理后排队的 Close）直接放行
         _cleanupStarted = true;
+
         e.Cancel = true;
-        try
+        BeginCleanupAndClose();
+    }
+
+    /// <summary>异步清理会话，然后排到 Dispatcher 下一轮再真正关闭窗口。</summary>
+    private void BeginCleanupAndClose()
+    {
+        _session = null; // 清理期间不再接受任何会话相关操作
+
+        _ = Task.Run(async () =>
         {
-            await _vm.DetachSessionAsync();
-        }
-        catch
-        {
-            // 关闭流程中的异常忽略
-        }
-        Close();
+            try
+            {
+                await _vm.DetachSessionAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // 清理失败也要继续关闭
+            }
+            finally
+            {
+                // 回到 UI 线程：此时本轮 Closing 早已返回，Close() 才安全
+                _ = Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        Close();
+                    }
+                    catch
+                    {
+                        // 窗口已关闭 / 应用正在退出，忽略
+                    }
+                }), System.Windows.Threading.DispatcherPriority.Background);
+            }
+        });
     }
 }

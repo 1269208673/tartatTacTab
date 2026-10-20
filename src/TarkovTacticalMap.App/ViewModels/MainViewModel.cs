@@ -155,10 +155,6 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _canEditThickness;
 
-    /// <summary>当前缩放下的嵌套网格引用（如 D5:A3:E1:A1）。</summary>
-    [ObservableProperty]
-    private string _gridDepthText = "";
-
     [ObservableProperty]
     private double _selectionRotation;
 
@@ -1048,7 +1044,7 @@ public sealed partial class MainViewModel : ObservableObject
         StatusText = message;
     }
 
-    /// <summary>更新鼠标相关的状态栏信息（含嵌套网格引用）。</summary>
+    /// <summary>更新鼠标相关的状态栏信息（含当前网格引用，如 C3）。</summary>
     public void UpdateHover(float screenX, float screenY)
     {
         var map = _session?.Map;
@@ -1059,17 +1055,14 @@ public sealed partial class MainViewModel : ObservableObject
             HoverGridLabel = null;
             HoverPoint = null;
             GridLabel = "—";
-            GridDepthText = "";
             CoordinateText = "—";
             return;
         }
 
-        var specs = NestedGrid.BuildSpecs(map);
-        var depth = NestedGrid.GetVisibleDepth(specs, Viewport);
-        HoverGridLabel = NestedGrid.GetReference(normalized.X, normalized.Y, specs, depth);
+        var (cols, rows) = GridLayout.GetSize(map);
+        HoverGridLabel = GridLayout.GetReference(normalized.X, normalized.Y, cols, rows);
         HoverPoint = normalized;
         GridLabel = HoverGridLabel ?? "—";
-        GridDepthText = depth > 1 ? $"L{depth}" : "";
 
         var px = (int)MathF.Round(normalized.X * map.ImageWidth);
         var py = (int)MathF.Round(normalized.Y * map.ImageHeight);

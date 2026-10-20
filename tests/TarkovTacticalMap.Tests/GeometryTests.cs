@@ -183,11 +183,9 @@ public class GeometryTests
         Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Arrow, Size = 0.1f }, vp));
         Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Line, EndX = 0.6f, EndY = 0.6f }, vp));
 
-        // 图标点与文本提供「大小」控制点（放置后可继续调整大小）
-        var pointHandle = Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Point, Size = 0.02f }, vp));
-        Assert.Equal(HandleKind.Size, pointHandle.Kind);
-        var textHandle = Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Text, Size = 0.03f, Text = "abc" }, vp));
-        Assert.Equal(HandleKind.Size, textHandle.Kind);
+        // 图标点与文本没有控制点（大小/粗细通过属性面板调整，放置后不提供手柄）
+        Assert.Empty(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Point, Size = 0.02f }, vp));
+        Assert.Empty(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Text, Size = 0.03f, Text = "abc" }, vp));
 
         // 笔画没有控制点（粗细用面板 / 工具栏调整）
         Assert.Empty(MarkerGeometry.GetHandles(new Marker
@@ -250,25 +248,6 @@ public class GeometryTests
         Assert.True(bounds.Top <= topLeft.Y);
         Assert.True(bounds.Right >= bottomRight.X);
         Assert.True(bounds.Bottom >= bottomRight.Y);
-    }
-
-    [Fact]
-    public void SizeHandle_ComputesSizeForIconAndText()
-    {
-        var vp = NewViewport();
-        var point = new Marker { Type = MarkerType.Point, X = 0.5f, Y = 0.5f, Size = 0.02f };
-        var anchor = vp.NormalizedToScreen(0.5f, 0.5f);
-
-        // 从中心向右上拖到 40px 处 → 图标宽度 80px
-        var dragged = new MapPoint(anchor.X + 40f, anchor.Y - 40f);
-        var size = MarkerGeometry.ComputeSizeFromHandle(point, dragged, vp);
-        Assert.Equal(80f / vp.DisplayWidth, size, 4);
-
-        var text = new Marker { Type = MarkerType.Text, X = 0.2f, Y = 0.2f, Size = 0.03f, Text = "abc" };
-        var textAnchor = vp.NormalizedToScreen(0.2f, 0.2f);
-        var textDragged = new MapPoint(textAnchor.X + 10f, textAnchor.Y + 27f);
-        var fontPx = MarkerGeometry.ComputeSizeFromHandle(text, textDragged, vp) * vp.DisplayWidth;
-        Assert.Equal(20f, fontPx, 1); // 27 / 1.35 = 20
     }
 
     [Fact]

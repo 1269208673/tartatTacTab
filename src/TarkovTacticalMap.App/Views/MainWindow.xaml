@@ -52,7 +52,6 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="网格 " Foreground="{StaticResource TextSecondary}" />
                     <TextBlock Text="{Binding GridLabel}" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" />
-                    <TextBlock Text="{Binding GridDepthText}" Foreground="{StaticResource TextSecondary}" Margin="4,0,0,0" />
                 </StackPanel>
             </StatusBarItem>
             <Separator />

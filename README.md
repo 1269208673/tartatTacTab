@@ -44,6 +44,7 @@ dotnet run --project src/TarkovTacticalMap.App -- --offline   # 跳过首页，�
 ```powershell
 & .\scripts\publish.ps1                    # 生成 publish/TarkovTacticalMap.exe（单文件、自包含、约 67 MB）
 & .\scripts\publish.ps1 -Output dist       # 指定输出目录
+& .\scripts\publish.ps1 -Version 2.2.0     # 指定版本号（写入 exe 文件版本 / 关于对话框）
 & .\scripts\publish.ps1 -FrameworkDependent # 框架依赖（体积小，需装 .NET 8 桌面运行时）
 ```
 
@@ -55,6 +56,30 @@ dotnet publish src/TarkovTacticalMap.App/TarkovTacticalMap.App.csproj `
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
   -o publish
 ```
+
+### 3.1 每个版本发布为 GitHub Release
+
+打一个 `v*` 的 tag 即可，`.github/workflows/release.yml` 会自动：
+
+1. Release 编译 + 无头测试
+2. 生成 win-x64 自包含单文件 exe（版本号取自 tag）
+3. 压缩成 `TarkovTacticalMap-vX.Y.Z-win-x64.zip`
+4. 创建 GitHub Release，上传 exe 与 zip，并附带自动生成的变更说明
+
+```powershell
+# 方式一：本地打 tag 并推送（推荐，CI 完成发布）
+git tag v2.2.0
+git push origin v2.2.0
+
+# 方式二：用脚本（可选 -Push 推送、-Gh 直接用 gh CLI 创建 Release）
+& .\scripts\release.ps1 -Version 2.2.0            # 本地构建 zip + 打 tag
+& .\scripts\release.ps1 -Version 2.2.0 -Push      # 打 tag 并推送，触发 CI 发布
+& .\scripts\release.ps1 -Version 2.2.0 -LocalOnly # 只在本地构建，不打 tag
+
+# 方式三：在 GitHub Actions 页面手动 Run workflow，填版本号
+```
+
+> 仓库需要先配置 `origin`（`git remote add origin <url>`）并有推送权限；Release 由 `GITHUB_TOKEN` 创建，无需额外密钥。
 
 ### 4. 防火墙 / 组网注意
 
@@ -96,7 +121,7 @@ dotnet publish src/TarkovTacticalMap.App/TarkovTacticalMap.App.csproj `
 
 | 操作 | 行为 |
 | --- | --- |
-| 鼠标滚轮 | 以鼠标位置为中心缩放，0.2x ~ 40x（放大后自动出现更深层网格） |
+| 鼠标滚轮 | 以鼠标位置为中心缩放，0.2x ~ 10x |
 | **右键拖拽** / 空格+左键拖拽 | 平移画布 |
 | **中键点击** | 快速删除光标下最上层的标记（需权限；只删一个，不进入选中/拖拽状态） |
 | 工具栏选图标 + 左键点击 | 放置该 IconId 的 Point 标记 |
@@ -105,8 +130,7 @@ dotnet publish src/TarkovTacticalMap.App/TarkovTacticalMap.App.csproj `
 | 文本工具 + 左键点击 | 弹出输入框，确定后放置文本标记 |
 | 左键点击标记 | 选中，右侧属性面板可改颜色 / 大小 / 粗细 / 旋转 / 文本 / 删除 |
 | 拖动选中标记 | 移动；圆圈拖圆心，方框/直线/笔画整体移动 |
-| 拖动控制点 | 箭头改长度与方向；圆圈改半径；方框改宽高；直线改终点；图标/文本的右下角手柄改大小 |
-| 放置后的微调 | 新标记放置后保持选中并显示大小手柄，可直接拖动缩放，直到放置下一个标记 |
+| 拖动控制点 | 箭头改长度与方向；圆圈改半径；方框改宽高；直线改终点 |
 | 双击文本标记 | 编辑文本内容 |
 | `Ctrl+Z` / `Ctrl+Y` | 撤销 / 重做本机编辑（新增、修改、删除；只记录自己的操作） |
 | `Delete` | 删除选中标记（需权限） |
@@ -229,7 +253,7 @@ payload = MessagePack 序列化的 Envelope { Type: MessageType, Data: byte[]（
 - 箭头长度只受 `Size` 影响，杆粗与箭头头部只受 `Thickness` 影响 —— 拉长不会整体放大。
 - 圆圈是正圆（`Size` 为半径、`Thickness` 为描边）；方框由 `(X,Y)` 与 `(EndX,EndY)` 决定；箭头由 `(X,Y)` + `Rotation` + `Size` 决定，方向按屏幕角度（与窗口宽高比无关）。
 - **自由笔画**（`MarkerType.Stroke`）：`Points` 为归一化折线点数组（最多 2000 点），`Thickness` 为线宽。
-- **嵌套网格**：每一级每边最多 10 格（列 `A~J`、行 `0~9`）。一级网格按图片宽高比自动推导行列数——非正方形图片会减少较短那边（例如 3:1 的宽图会是 9×3），使格子保持接近正方形；放大后每一级把父格再切成最多 10×10，最多 4 级；引用用冒号串联，如 `D5:A3:E1:A0`。网格只是视觉参考，**不参与存储**。
+- **网格（只有一级）**：每边最多 10 格 —— 列 `A~J`、行 `0~9`。按图片宽高比自动推导行列数，非正方形图片会减少较短那边（例如 3:1 的宽图是 9×3），使格子保持接近正方形。网格只是视觉参考，**不参与存储**；标记大小 / 粗细用属性面板调整，不提供大小手柄。
 - `IconId` 固定五种：`kill`（击杀）、`scout`（踩点）、`document`（文件）、`key`（钥匙）、`target`（目标）；未知值回退为默认圆点。
 - 未知 `MarkerType` 安全回退为默认圆点，不崩溃、不断连。
 - MessagePack：`[MessagePackObject]` + `[Key(n)]`，`ContractlessStandardResolver` 兜底；新增字段追加 `[Key(n)]`，不复用旧编号。当前 `ProtocolVersion = 2`（v2 新增 `Marker.Thickness`、`Marker.Points` 与 `MarkerType.Stroke`，v1 客户端会被房主提示版本不匹配）。
@@ -249,14 +273,14 @@ dotnet test TarkovTacticalMap.sln --filter "FullyQualifiedName~NetworkIntegratio
 | --- | --- |
 | `ProtocolFrameTests` | 帧格式（大端长度、4 字节头）、超长帧拒绝、截断帧报错、Envelope / Marker（含 Thickness / Points）/ Welcome / MapChunk 序列化往返 |
 | `GeometryTests` | 适应窗口比例、居中矩形、归一化↔屏幕可逆、滚轮缩放锚点不动、缩放限幅、窗口尺寸变化后位置正确、网格标签、箭头角度/长度反算、**箭头杆粗与长度解耦**、笔画命中与包围盒、**大小控制点反算**、控制点与命中检测 |
-| `NestedGridTests` | 一级网格保持正方形格子（≤6% 误差）与每边 ≤10 格上限、宽图减行 / 高图减列、方图满密度、按缩放自动递归层级、多级引用格式（列 A~J、行 0~9）、引用与格子矩形自洽、每级格宽按 10×10 递减 |
+| `GridLayoutTests` | 一级网格保持正方形格子（≤6% 误差）与每边 ≤10 格上限、宽图减行 / 高图减列、方图满密度、引用形如 `C3`（单级、不含冒号）、引用与格子矩形自洽、密度调整与限幅 |
 | `MarkerStoreTests` | 新增/删除幂等、权限（客户端 vs 房主）、OwnerId 与 CreatedAt 不可篡改、CreatedAt 排序、快照为副本、规范化（坐标 clamp / Size、Thickness 限幅 / 旋转归一化 / 颜色 / 文本截断 / 笔画点数）、未知类型兼容、并发写入 |
 | `ImageTransferTests` | 64KB 分块数量与序号、乱序拼装、SHA-256 校验失败、越界与跨图分块拒绝、哈希与口令工具、颜色工具 |
 | `NetworkIntegrationTests` | 回环 TCP：WELCOME 快照、增删改广播、权限拒绝、重复新增幂等、地图分块获取、口令错误、协议版本不匹配、首帧必须 HELLO、玩家加入/离开、**断网后自动重连并重建**、房主关闭通知不再重连 |
 | `SessionIntegrationTests` | App 会话门面：房主+客户端全流程（图片分发与缓存命中）、标记同步与权限、口令错误抛异常、离线模式、网格密度按比例推导、缓存读写/损坏/路径穿越防护 |
-| `RenderSnapshotTests` | 真实 SkiaSharp 渲染到 `SKBitmap` 并断言关键像素（七种标记 + 五种图标 + 网格 + 选中控制点）、**长箭头像素更多但杆粗不变**、**圆圈粗细只影响描边**、**笔画折线渲染**、**嵌套网格竖线间距 = 最深层格宽**、未知 IconId / 未知 MarkerType 回退 |
+| `RenderSnapshotTests` | 真实 SkiaSharp 渲染到 `SKBitmap` 并断言关键像素（七种标记 + 五种图标 + 网格 + 选中控制点）、**长箭头像素更多但杆粗不变**、**圆圈粗细只影响描边**、**笔画折线渲染**、**网格只有一级且竖线间距 = 格宽**、未知 IconId / 未知 MarkerType 回退 |
 | `IconShapeTests` | 图标栅格化成 ASCII 字符画（写入 `artifacts/renders/icons-ascii.txt`），断言靶心环、钥匙孔、折角等几何特征 |
-| `UiSmokeTests` | STA 线程加载 `App.xaml`、构造并显示首页与主窗口、**断言无数据绑定错误**、**菜单弹层真实渲染 + 深底浅字像素统计（防「白底白字」回归）**、房主↔客户端跨线程同步（Dispatcher 封送）、中键快速删除、**撤销/重做、自由笔画、大小手柄、粗细联动、嵌套网格引用** |
+| `UiSmokeTests` | STA 线程加载 `App.xaml`、构造并显示首页与主窗口、**断言无数据绑定错误**、**菜单弹层真实渲染 + 深底浅字像素统计（防「白底白字」回归）**、房主↔客户端跨线程同步（Dispatcher 封送）、中键快速删除、撤销/重做、自由笔画、粗细联动、网格引用、**关闭窗口不抛异常（回归测试）** |
 
 渲染快照与字符画会写入 `artifacts/renders/`（`scene-all-markers.png`、`scene-nested-grid.png`、`marker-stroke.png`、`scene-grid-selection.png`、`icons-sheet.png`、`icons-ascii.txt`、`menu-popup.png`），便于人工核对。
 
@@ -271,7 +295,7 @@ win-x64 自包含单文件发布 → 上传 `TarkovTacticalMap.exe` 产物。
 
 | 里程碑 | 状态 | 实现要点 |
 | --- | --- | --- |
-| **M1** 地图渲染与本地标记 | ✅ | WPF + `SKElement`，滚轮缩放 / **右键拖拽平移**，网格与 A~J、0~9 嵌套标签，七种标记类型（含自由笔画）+ 五种内置图标，拖拽创建与控制点调整，**中键快速删除**，选中/移动/编辑/删除 |
+| **M1** 地图渲染与本地标记 | ✅ | WPF + `SKElement`，滚轮缩放 / **右键拖拽平移**，网格与 A~J、0~9 标签，七种标记类型（含自由笔画）+ 五种内置图标，拖拽创建与控制点调整，**中键快速删除**，选中/移动/编辑/删除 |
 | **M2** TCP 骨架与全量同步 | ✅ | `TcpListener` / `TcpClient`，`HELLO` / `WELCOME` / `ERROR`，新客户端拿到 `MapInfo` + 全量 `Marker[]` |
 | **M3** 增量广播 | ✅ | `MARKER_ADD/UPDATE/DELETE` 经房主校验后广播，权限校验，幂等处理 |
 | **M4** 地图图片分发 | ✅ | SHA-256、本地缓存、`MAP_REQUEST` / `MAP_CHUNK` 64KB 分块、缓存命中跳过传输 |
@@ -295,7 +319,7 @@ win-x64 自包含单文件发布 → 上传 `TarkovTacticalMap.exe` 产物。
 ## 需要确认的假设 / 与文档的差异
 
 1. **首页多一个「仅本机模式」入口**：文档只要求「创建房间 / 加入房间」两个按钮。为了在无网络的情况下也能使用与自测（M1 验收），额外提供了不联网的本地模式。
-2. **网格是本机视图设置且支持嵌套**：文档没有定义「修改网格」的网络消息，因此密度设置只影响本机显示，不广播；`MapInfo.GridCols/GridRows` 随 `WELCOME` 下发为初始值（行列数按图片宽高比推导，保持正方形格子）。二级及以后由缩放自动递归（每级最多 10×10，最多 4 级），引用如 `D5:A3:E1:A0`。
+2. **网格是本机视图设置（只有一级）**：文档没有定义「修改网格」的网络消息，因此密度设置只影响本机显示，不广播；`MapInfo.GridCols/GridRows` 随 `WELCOME` 下发为初始值（行列数按图片宽高比推导，保持正方形格子）。次级网格已按使用方要求**取消**，引用只有一级，如 `C3`。
 2.1 **行标签从 0 开始（按使用方要求）**：文档 4.1/6.4 写的是行 `1,2,3…`，实际改为 `0~9`（配合每边 10 格的上限）；列仍为 `A,B,C…`，上限 `A~J`。若上游要求 1 起始，只需改 `GridReference.RowLabel`。
 3. **房间创建后地图固定**：文档消息表里没有「更换地图」消息，所以换图只在「还没有队友加入」时允许（离线模式随时可换）。若需要房间中途换图，需要新增一条 `MAP_UPDATE` 消息并递增协议版本。
 4. **拖拽过程中的实时性**：拖动标记时本地实时预览（草稿层），**松开鼠标时**才发送一次 `MARKER_UPDATE`。局域网内延迟通常 < 10ms；如果希望队友看到「实时拖动轨迹」，需要额外的节流广播策略。
@@ -308,10 +332,11 @@ win-x64 自包含单文件发布 → 上传 `TarkovTacticalMap.exe` 产物。
 11. **鼠标按键与文档不同（按使用方要求调整）**：文档 6.3 写的是「中键拖拽平移」，实际实现为 **右键拖拽平移**（更符合常见地图软件习惯，也避免与触控板中键冲突），并把 **中键改成快速删除光标下的标记**（等价于「左键选中 + Delete」，但一步完成）。空格+左键平移仍然保留。
 12. **菜单弹层配色为自定义模板**：WPF 默认菜单弹层使用系统浅色画刷，与深色主题的浅色文字叠加会「白底白字」。已为 `MenuItem` 编写完整深色模板（含勾选标记、子菜单箭头、分隔线），并用自动化测试断言「深底浅字」（像素统计 + WCAG 对比度 ≥ 4.5）。
 13. **协议升到 v2**：新增 `Marker.Thickness`（独立粗细）、`Marker.Points`（自由笔画折线）与 `MarkerType.Stroke`。旧版（v1）客户端连入会被房主以「版本不匹配」拒绝，属预期行为。
-14. **最大缩放从 10x 提到 40x**：文档写的是 0.2x~10x，但嵌套网格要靠放大才能显示到第 3/4 级，因此放宽上限（0.2x~40x）。
+14. **关闭窗口的清理方式**：`OnWindowClosing` 不再 `async void`，也不在 Closing 期间调用 `Close()`（那会抛 `InvalidOperationException：窗口关闭期间无法调用 Show/Close`）。现在的做法是：`e.Cancel = true` → 后台线程清理会话 → 通过 `Dispatcher.BeginInvoke` 排到下一轮再真正关闭；并有回归测试与真实 `WM_CLOSE` 验证。
 15. **箭头语义修正（按使用方要求）**：文档 4.2 规定 Arrow 的 `Size` 既是长度也隐含粗细。现在 `Size` 只表示长度，粗细由 `Thickness` 单独控制，所以**拉长箭头不会再整体放大**；圆圈/直线/方框同理，半径或端点与描边粗细互相独立。
 16. **撤销/重做只覆盖本机操作**：只记录自己发起的新增/修改/删除（远端玩家的广播不会进历史），最多 200 步；1.2 秒内对同一标记的连续微调（拖滑杆、拖手柄）会合并为一条。会话切换/重连后历史清空。
 17. **自由笔画点数上限 2000**：拖动时按屏幕距离 ≥2.2px 抽稀，避免单帧过大与历史爆内存。
+18. **已取消「放置后拖手柄调整大小」**：图标点与文本不提供控制点（实际手感不好，按使用方要求去掉），大小 / 粗细统一在右侧属性面板或工具栏滑块调整。
 
 ## 已知限制
 

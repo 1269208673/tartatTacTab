@@ -39,6 +39,8 @@ public class UiSmokeTests
             {
                 var app = new TarkovTacticalMap.App.App();
                 app.InitializeComponent(); // 加载 App.xaml 中的样式与转换器
+                // 测试里手动控制生命周期，避免关闭窗口时触发 Application.Shutdown
+                app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
                 PresentationTraceSources.Refresh();
                 var listener = new CollectingTraceListener(bindingErrors);
@@ -249,25 +251,13 @@ public class UiSmokeTests
                 var onStroke = viewModel.Viewport.NormalizedToScreen(0.3f, 0.25f);
                 Assert.Equal(stroke.Id, viewModel.HitTestMarker(onStroke.X, onStroke.Y));
 
-                // ── 大小控制点（放置后可直接调整大小）──
+                // ── 大小控制点已取消：图标/文本不再提供控制点 ──
                 viewModel.SelectTool(ToolKind.Kill);
                 var icon = viewModel.CreatePrototype(ToolKind.Kill, new Core.Geometry.MapPoint(0.7f, 0.7f));
                 viewModel.AddMarkerAsync(icon).GetAwaiter().GetResult();
                 Pump();
                 viewModel.SelectMarker(icon.Id);
-                var handle = viewModel.HitTestHandle(
-                    viewModel.Viewport.NormalizedToScreen(icon.X, icon.Y).X + 200f,
-                    viewModel.Viewport.NormalizedToScreen(icon.X, icon.Y).Y);
-                Assert.Null(handle); // 远离手柄不应命中
-
-                var handles = MarkerGeometry.GetHandles(viewModel.FindMarker(icon.Id)!, viewModel.Viewport);
-                var sizeHandle = Assert.Single(handles);
-                Assert.Equal(HandleKind.Size, sizeHandle.Kind);
-
-                var newSize = MarkerGeometry.ComputeSizeFromHandle(
-                    viewModel.FindMarker(icon.Id)!, new Core.Geometry.MapPoint(sizeHandle.ScreenX + 30f, sizeHandle.ScreenY + 30f),
-                    viewModel.Viewport);
-                Assert.True(newSize > icon.Size);
+                Assert.Empty(MarkerGeometry.GetHandles(viewModel.FindMarker(icon.Id)!, viewModel.Viewport));
 
                 // ── 粗细：选中圆圈后改 Thickness ──
                 viewModel.SelectTool(ToolKind.Circle);
@@ -285,25 +275,38 @@ public class UiSmokeTests
                 }, TimeSpan.FromSeconds(5));
                 Assert.Equal(0.012f, viewModel.FindMarker(circle.Id)!.Thickness, 4);
 
-                // ── 嵌套网格引用 ──
+                // ── 网格：只有一级，引用形如 C3（不含冒号） ──
                 viewModel.Viewport.SetCanvas(900f, 700f);
                 viewModel.Viewport.SetImage(320, 240);
-                viewModel.Viewport.ZoomAt(450f, 350f, 1f);
                 viewModel.UpdateHover(450f, 350f);
-                var shallow = viewModel.GridLabel;
-                Assert.NotEqual("—", shallow);
-                Assert.DoesNotContain(':', shallow);
-
-                viewModel.Viewport.ZoomAt(450f, 350f, 8f);
-                viewModel.UpdateHover(450f, 350f);
-                _output.WriteLine($"缩放 8x 时网格引用：{viewModel.GridLabel}");
-                Assert.Contains(':', viewModel.GridLabel);
-                Assert.True(NestedGrid.SplitReference(viewModel.GridLabel).Count >= 2);
+                var reference = viewModel.GridLabel;
+                _output.WriteLine($"网格引用：{reference}");
+                Assert.NotEqual("—", reference);
+                Assert.DoesNotContain(':', reference);
+                Assert.Matches("^[A-J][0-9]$", reference);
 
                 window.UpdateLayout();
                 Pump();
-                window.Hide();
-                session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+                // ── 回归：点右上角 X（Close()）关闭窗口不得抛异常 ──
+                // 旧实现是 async void + 在 Closing 里再次 Close()，会抛
+                // InvalidOperationException「在窗口关闭期间…无法调用 Show/Close」。
+                var closeErrors = new List<Exception>();
+                var windowClosed = false;
+                window.Closed += (_, _) => windowClosed = true;
+                window.Dispatcher.UnhandledException += (_, e) =>
+                {
+                    closeErrors.Add(e.Exception);
+                    e.Handled = true;
+                };
+
+                window.Close();
+                WaitFor(() => windowClosed, TimeSpan.FromSeconds(20));
+
+                Assert.True(windowClosed, "窗口应当已被关闭");
+                Assert.False(window.IsVisible, "关闭后窗口不应仍可见");
+                foreach (var error in closeErrors) _output.WriteLine("关闭时异常: " + error);
+                Assert.Empty(closeErrors);
 
                 // ── 房主 + 客户端在同一 UI 线程上跨线程同步（验证 Dispatcher 封送）──
                 var hostCache = TestHelpers.CreateTempCache();

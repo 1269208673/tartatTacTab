@@ -11,6 +11,7 @@ param(
     [string]$Runtime = "win-x64",
     [string]$Configuration = "Release",
     [string]$Output = "publish",
+    [string]$Version = "",
     [switch]$FrameworkDependent
 )
 
@@ -23,6 +24,7 @@ Write-Host "== 发布 塔塔战术平板 ==" -ForegroundColor Cyan
 Write-Host "项目   : $project"
 Write-Host "配置   : $Configuration / $Runtime"
 Write-Host "输出   : $outDir"
+Write-Host "版本   : $(if ($Version) { $Version } else { '（使用 csproj 默认值）' })"
 Write-Host "自包含 : $(-not $FrameworkDependent)"
 
 $args = @(
@@ -33,6 +35,10 @@ $args = @(
     "-p:DebugType=None",
     "--nologo"
 )
+
+if ($Version) {
+    $args += @("-p:Version=$($Version.TrimStart('v'))")
+}
 
 if ($FrameworkDependent) {
     $args += @("--self-contained", "false")

@@ -16,9 +16,6 @@ public enum HandleKind
 
     /// <summary>线终点（改 EndX/EndY）。</summary>
     EndPoint = 4,
-
-    /// <summary>大小控制点（图标宽度 / 字号等几何尺寸，改 Size）。</summary>
-    Size = 5,
 }
 
 /// <summary>一个控制点：类别 + 屏幕坐标。</summary>
@@ -49,9 +46,6 @@ public static class MarkerGeometry
 
     /// <summary>控制点命中容差（屏幕像素）。</summary>
     public const float HandleHitTolerance = 10f;
-
-    /// <summary>大小控制点相对包围盒右下角的偏移（屏幕像素）。</summary>
-    public const float SizeHandleOffset = 8f;
 
     /// <summary>箭头的方向向量（Rotation 为顺时针角度，屏幕 Y 轴向下）。</summary>
     public static MapPoint Direction(float rotationDegrees)
@@ -234,15 +228,6 @@ public static class MarkerGeometry
                 var p = vp.NormalizedToScreen(m.EndX, m.EndY);
                 return new[] { new HandleInfo(HandleKind.Corner, p.X, p.Y) };
             }
-            case Models.MarkerType.Point:
-            case Models.MarkerType.Text:
-            {
-                var bounds = GetScreenBounds(m, vp);
-                return new[]
-                {
-                    new HandleInfo(HandleKind.Size, bounds.Right + SizeHandleOffset, bounds.Bottom + SizeHandleOffset),
-                };
-            }
             default:
                 return Array.Empty<HandleInfo>();
         }
@@ -260,25 +245,6 @@ public static class MarkerGeometry
             }
         }
         return null;
-    }
-
-    /// <summary>由「大小控制点」拖动位置反算新的 Size（Point=图标宽度，Text=字号）。</summary>
-    public static float ComputeSizeFromHandle(Models.Marker m, MapPoint screenPoint, ViewportState vp)
-    {
-        var displayWidth = MathF.Max(vp.DisplayWidth, 1e-3f);
-        var anchor = vp.NormalizedToScreen(m.X, m.Y);
-
-        if (m.Type == Models.MarkerType.Text)
-        {
-            // 字号 ≈ (光标到文本左上角的纵向距离) / 1.35
-            var height = MathF.Max(screenPoint.Y - anchor.Y, 6f);
-            return height / 1.35f / displayWidth;
-        }
-
-        // 图标：以中心为基准，宽度 = 2 × 光标到中心的较大轴向距离
-        var dx = MathF.Abs(screenPoint.X - anchor.X);
-        var dy = MathF.Abs(screenPoint.Y - anchor.Y);
-        return MathF.Max(dx, dy) * 2f / displayWidth;
     }
 
     /// <summary>命中标记检测（屏幕坐标）。</summary>

@@ -12,6 +12,12 @@
     <ApplicationIcon />
     <Platforms>AnyCPU;x64</Platforms>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+
+    <!-- 版本号：发布 Release 时用 tag（vX.Y.Z）覆盖，见 .github/workflows/release.yml -->
+    <Version>2.2.0</Version>
+    <Product>塔塔战术平板</Product>
+    <Company>Tarkov Tactical Map</Company>
+    <Description>小队内部使用的战术地图白板（TCP 房主权威同步）</Description>
   </PropertyGroup>
 
   <ItemGroup>

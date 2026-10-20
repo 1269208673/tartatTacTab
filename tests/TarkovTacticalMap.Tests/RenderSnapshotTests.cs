@@ -408,20 +408,18 @@ public class RenderSnapshotTests
     }
 
     [Fact]
-    public void NestedGrid_DrawsSubDivisionLinesWhenZoomedIn()
+    public void Grid_DrawsSingleLevelLinesWithExpectedSpacing()
     {
         var map = MapInfo.CreateBlank("hash", 1600, 1200);
-        map.ApplyGridDensity(26);
+        map.ApplyGridDensity(MapInfo.DefaultGridDensity);
 
-        // 放大到能看到二级网格
         var viewport = new ViewportState();
         viewport.SetCanvas(900f, 700f);
         viewport.SetImage(1600, 1200);
-        viewport.ZoomAt(450f, 350f, 12f);
 
-        var specs = NestedGrid.BuildSpecs(map);
-        var depth = NestedGrid.GetVisibleDepth(specs, viewport);
-        Assert.True(depth >= 2, $"缩放 12x 时应看到二级网格（实际 {depth}）");
+        var (cols, rows) = GridLayout.GetSize(map);
+        Assert.InRange(cols, 1, MapInfo.MaxGrid);
+        Assert.InRange(rows, 1, MapInfo.MaxGrid);
 
         var scene = new RenderScene
         {
@@ -447,9 +445,9 @@ public class RenderSnapshotTests
                 if (bitmap.GetPixel(x, y).Red > 40) nonBackground++;
             }
         }
-        Assert.True(nonBackground > 500, $"嵌套网格应画出可见线条（非背景像素 {nonBackground}）");
+        Assert.True(nonBackground > 500, $"网格应画出可见线条（非背景像素 {nonBackground}）");
 
-        // 竖线检测：整列大部分像素被网格线覆盖 → 统计线位置与间距是否规则
+        // 竖线检测：整列大部分像素被网格线覆盖 → 统计线位置与间距
         var rawColumns = new List<int>();
         for (var x = 0; x < bitmap.Width; x++)
         {
@@ -470,25 +468,23 @@ public class RenderSnapshotTests
             if (lineColumns.Count == 0 || x - lineColumns[^1] > 1) lineColumns.Add(x);
         }
 
-        Assert.True(lineColumns.Count >= 4, $"应检测到多条竖网格线（{lineColumns.Count}）");
+        Assert.True(lineColumns.Count >= 3, $"应检测到多条竖网格线（{lineColumns.Count}）");
 
         var gaps = new List<int>();
         for (var i = 1; i < lineColumns.Count; i++) gaps.Add(lineColumns[i] - lineColumns[i - 1]);
         var minGap = gaps.Min();
-        _output.WriteLine($"竖网格线 {lineColumns.Count} 条，最小间距 {minGap}px（可见层级 {depth}）");
-        Assert.True(minGap >= 6, $"最细网格间距过小：{minGap}px");
+        var expectedGap = viewport.DisplayWidth / cols;
+        _output.WriteLine($"竖网格线 {lineColumns.Count} 条，最小间距 {minGap}px，一格格宽 {expectedGap:F1}px（{cols}×{rows} 网格）");
 
-        // 最小间距应当等于最深层级的格宽（允许 ±3px 抗锯齿 / 取整误差）
-        var (levelW, _) = NestedGrid.GetCellSize(specs, depth);
-        var expectedGap = levelW * viewport.DisplayWidth;
-        _output.WriteLine($"最深层级格宽 {expectedGap:F1}px");
+        // 只有一级网格：所有间距都应等于一格格宽（±3px 抗锯齿 / 取整误差）
         Assert.InRange(minGap, expectedGap - 3f, expectedGap + 3f);
+        Assert.All(gaps, gap => Assert.InRange(gap, expectedGap - 3f, expectedGap + 3f));
 
         var artifactDir = ArtifactDirectory();
         Directory.CreateDirectory(artifactDir);
         using var image = SKImage.FromBitmap(bitmap);
         using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-        File.WriteAllBytes(Path.Combine(artifactDir, "scene-nested-grid.png"), data.ToArray());
+        File.WriteAllBytes(Path.Combine(artifactDir, "scene-grid.png"), data.ToArray());
     }
 
     /// <summary>统计某一竖列上连续命中的着色像素个数（用来估算笔画粗细）。</summary>

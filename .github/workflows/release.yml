@@ -1,0 +1,98 @@
+name: release
+
+# 每个版本打一个 tag（如 v2.2.0）即可自动：
+#   1) 编译 win-x64 自包含单文件 exe
+#   2) 压缩成 TarkovTacticalMap-vX.Y.Z-win-x64.zip
+#   3) 创建 GitHub Release 并上传该 exe（附带自动生成的变更说明）
+#
+# 用法：
+#   git tag v2.2.0 && git push origin v2.2.0
+# 也可以在 Actions 页面手动 Run workflow 并填版本号。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 v2.2.0）'
+        required: true
+        default: 'v0.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 解析版本号
+        id: version
+        shell: pwsh
+        run: |
+          $ref = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $ref = "${{ github.event.inputs.version }}"
+          }
+          if (-not $ref.StartsWith("v")) { $ref = "v$ref" }
+          $semver = $ref.TrimStart("v")
+          "tag=$ref"            >> $env:GITHUB_OUTPUT
+          "semver=$semver"      >> $env:GITHUB_OUTPUT
+          Write-Host "版本：$ref（$semver）"
+
+      - name: 安装 .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 编译并测试（无头用例）
+        run: |
+          dotnet build TarkovTacticalMap.sln -c Release --nologo
+          dotnet test TarkovTacticalMap.sln -c Release --no-build --nologo --filter "FullyQualifiedName!~UiSmokeTests"
+
+      - name: 发布单文件 exe
+        shell: pwsh
+        run: |
+          dotnet publish src/TarkovTacticalMap.App/TarkovTacticalMap.App.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true -p:DebugType=None `
+            -p:Version=${{ steps.version.outputs.semver }} `
+            -o publish --nologo
+
+      - name: 打包 zip
+        id: pack
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $zip = "TarkovTacticalMap-$tag-win-x64.zip"
+          Compress-Archive -Path publish/TarkovTacticalMap.exe -DestinationPath $zip -Force
+          Get-Item $zip, publish/TarkovTacticalMap.exe | Select-Object Name, Length
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: 创建 Release 并上传
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $exe = "./publish/TarkovTacticalMap.exe"
+          $zip = "./${{ steps.pack.outputs.zip }}"
+
+          $notes = @"
+自包含单文件可执行程序（win-x64），队友无需安装 .NET 运行时。
+
+- 解压/直接运行 ``TarkovTacticalMap.exe`` 即可
+- 房主首次监听端口时，Windows 可能弹出防火墙询问，请允许 TCP 入站
+- 队友之间先用 ZeroTier / Tailscale / Radmin VPN 等工具组网，再输入房主 IP + 端口 + 口令
+"@
+
+          gh release create $tag $exe $zip `
+            --title "塔塔战术平板 $tag" `
+            --generate-notes `
+            --notes $notes

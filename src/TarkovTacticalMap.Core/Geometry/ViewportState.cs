@@ -14,8 +14,8 @@ public sealed class ViewportState
 {
     public const float MinZoom = 0.2f;
 
-    /// <summary>最大缩放：放得足够大才能看到更深层的嵌套网格。</summary>
-    public const float MaxZoom = 40f;
+    /// <summary>最大缩放。</summary>
+    public const float MaxZoom = 10f;
 
     /// <summary>画布（可视区）宽度，像素。</summary>
     public float CanvasWidth { get; set; }
