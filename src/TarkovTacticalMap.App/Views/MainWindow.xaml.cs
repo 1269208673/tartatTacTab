@@ -24,6 +24,9 @@ public partial class MainWindow : Window
         MoveMarker,
         Handle,
         Create,
+
+        /// <summary>自由笔画绘制中。</summary>
+        DrawStroke,
     }
 
     private readonly MainViewModel _vm;
@@ -40,6 +43,7 @@ public partial class MainWindow : Window
     private string? _dragMarkerId;
     private MapPoint _dragStartNorm;
     private MapPoint _dragStartSurface;
+    private MapPoint _lastStrokePoint;
     private bool _spaceDown;
     private MouseButton _dragButton;
     private bool _cleanupStarted;
@@ -53,6 +57,11 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         _vm.RenderInvalidated += (_, _) => InvalidateCanvas();
         Loaded += OnWindowLoaded;
+
+        // 粗细滑块的「拖动结束 / 点击轨道」才同步到选中标记
+        ThicknessSlider.AddHandler(System.Windows.Controls.Primitives.Thumb.DragCompletedEvent,
+            new System.Windows.Controls.Primitives.DragCompletedEventHandler((_, _) => OnThicknessSliderReleased(this, new RoutedEventArgs())));
+        ThicknessSlider.MouseLeftButtonUp += (_, _) => OnThicknessSliderReleased(this, new RoutedEventArgs());
     }
 
     private async void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -88,6 +97,7 @@ public partial class MainWindow : Window
             Background = _vm.Background,
             Icons = _vm.Icons,
             HoverGridLabel = _vm.HoverGridLabel,
+            HoverPoint = _vm.HoverPoint,
         };
 
         try
@@ -240,6 +250,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 自由笔画：按下开始记录折线点，拖动持续追加，松开提交
+        if (tool == ToolKind.Freehand)
+        {
+            var stroke = _vm.CreatePrototype(tool, normalized);
+            stroke.X = normalized.X;
+            stroke.Y = normalized.Y;
+            stroke.Points = new[] { new MarkerPoint(normalized.X, normalized.Y) };
+            _vm.Draft = stroke;
+            _drag = DragMode.DrawStroke;
+            _lastStrokePoint = surface;
+            CanvasView.CaptureMouse();
+            return;
+        }
+
         var draft = _vm.CreatePrototype(tool, normalized);
         draft.EndX = normalized.X;
         draft.EndY = normalized.Y;
@@ -276,6 +300,7 @@ public partial class MainWindow : Window
             }
 
             case DragMode.Create:
+            case DragMode.DrawStroke:
             {
                 var draft = _vm.Draft;
                 _vm.Draft = null;
@@ -301,6 +326,8 @@ public partial class MainWindow : Window
             case MarkerType.Line:
             case MarkerType.Rectangle:
                 return MathF.Abs(marker.EndX - marker.X) > 0.002f || MathF.Abs(marker.EndY - marker.Y) > 0.002f;
+            case MarkerType.Stroke:
+                return marker.PointCount >= 2;
             default:
                 return true;
         }
@@ -335,12 +362,35 @@ public partial class MainWindow : Window
             case DragMode.Create:
                 DragCreate(surface);
                 break;
+            case DragMode.DrawStroke:
+                DragStroke(surface);
+                break;
             default:
                 UpdateCursor(surface);
                 break;
         }
 
         InvalidateCanvas();
+    }
+
+    /// <summary>自由笔画：按屏幕距离抽稀追加折线点。</summary>
+    private void DragStroke(MapPoint surface)
+    {
+        var draft = _vm.Draft;
+        if (draft is null) return;
+
+        const float minDistancePx = 2.2f;
+        if (_lastStrokePoint.DistanceTo(surface) < minDistancePx) return;
+
+        var normalized = ToNormalizedClamped(surface);
+        var points = draft.Points ?? Array.Empty<MarkerPoint>();
+        if (points.Length >= MarkerValidator.MaxStrokePoints) return;
+
+        var list = new List<MarkerPoint>(points.Length + 1);
+        list.AddRange(points);
+        list.Add(new MarkerPoint(normalized.X, normalized.Y));
+        draft.Points = list.ToArray();
+        _lastStrokePoint = surface;
     }
 
     private void UpdateCursor(MapPoint surface)
@@ -388,6 +438,20 @@ public partial class MainWindow : Window
             draft.EndX = MarkerValidator.Clamp01(origin.EndX + dx);
             draft.EndY = MarkerValidator.Clamp01(origin.EndY + dy);
         }
+        else if (origin.Type is MarkerType.Stroke && origin.Points is { Length: > 0 } points)
+        {
+            // 笔画：整体平移所有折线点
+            var moved = new MarkerPoint[points.Length];
+            for (var i = 0; i < points.Length; i++)
+            {
+                moved[i] = new MarkerPoint(
+                    MarkerValidator.Clamp01(points[i].X + dx),
+                    MarkerValidator.Clamp01(points[i].Y + dy));
+            }
+            draft.Points = moved;
+            if (draft.X != moved[0].X) draft.X = moved[0].X;
+            if (draft.Y != moved[0].Y) draft.Y = moved[0].Y;
+        }
 
         _vm.Draft = draft;
     }
@@ -423,6 +487,14 @@ public partial class MainWindow : Window
                 var center = _vm.Viewport.NormalizedToScreen(origin.X, origin.Y);
                 var distance = center.DistanceTo(surface);
                 draft.Size = displayWidth > 1e-4f ? Math.Clamp(distance / displayWidth, 0f, MarkerValidator.MaxSize) : origin.Size;
+                break;
+            }
+            case HandleKind.Size:
+            {
+                // 图标宽度 / 字号：拖右下角圆点直接改 Size
+                draft.Size = Math.Clamp(
+                    MarkerGeometry.ComputeSizeFromHandle(origin, surface, _vm.Viewport),
+                    MarkerDefaults.PointSize * 0.2f, MarkerValidator.MaxSize);
                 break;
             }
         }
@@ -498,6 +570,24 @@ public partial class MainWindow : Window
             case Key.Delete:
                 _ = _vm.DeleteSelectedAsync();
                 e.Handled = true;
+                break;
+
+            case Key.Z:
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+                {
+                    _ = _vm.UndoAsync();
+                    InvalidateCanvas();
+                    e.Handled = true;
+                }
+                break;
+
+            case Key.Y:
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+                {
+                    _ = _vm.RedoAsync();
+                    InvalidateCanvas();
+                    e.Handled = true;
+                }
                 break;
 
             case Key.Escape:
@@ -642,9 +732,33 @@ public partial class MainWindow : Window
     {
         var map = _vm.Map;
         if (map is null) return;
-        var result = GridSettingsDialog.Ask(this, map.GridCols, map.GridRows);
-        if (result is null) return;
-        _vm.SetGridSize(result.Value.Cols, result.Value.Rows);
+
+        var density = GridSettingsDialog.Ask(this, map.GridDensity, map.GridCols, map.GridRows,
+            map.ImageWidth, map.ImageHeight);
+        if (density is null) return;
+
+        _settings.GridDensity = density.Value;
+        _settings.Save();
+        _vm.SetGridDensity(density.Value);
+        InvalidateCanvas();
+    }
+
+    private async void OnUndoClick(object sender, RoutedEventArgs e)
+    {
+        await _vm.UndoAsync();
+        InvalidateCanvas();
+    }
+
+    private async void OnRedoClick(object sender, RoutedEventArgs e)
+    {
+        await _vm.RedoAsync();
+        InvalidateCanvas();
+    }
+
+    /// <summary>工具栏「粗细」滑块：用户拖完/点完后再同步到选中标记（避免拖动过程狂发消息）。</summary>
+    private void OnThicknessSliderReleased(object sender, RoutedEventArgs e)
+    {
+        _vm.ApplyCurrentThicknessToSelection();
         InvalidateCanvas();
     }
 

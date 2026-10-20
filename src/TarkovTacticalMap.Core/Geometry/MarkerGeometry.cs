@@ -16,6 +16,9 @@ public enum HandleKind
 
     /// <summary>线终点（改 EndX/EndY）。</summary>
     EndPoint = 4,
+
+    /// <summary>大小控制点（图标宽度 / 字号等几何尺寸，改 Size）。</summary>
+    Size = 5,
 }
 
 /// <summary>一个控制点：类别 + 屏幕坐标。</summary>
@@ -36,8 +39,8 @@ public readonly struct HandleInfo
 }
 
 /// <summary>
-/// 标记的屏幕几何计算：控制点位置、命中检测。
-/// 全部在屏幕坐标系完成（控制点半径固定 6~8 像素，不随缩放变化）。
+/// 标记的屏幕几何计算：控制点位置、包围盒、线宽、命中检测。
+/// 全部在屏幕坐标系完成（控制点半径固定 7~8 像素，不随缩放变化）。
 /// </summary>
 public static class MarkerGeometry
 {
@@ -46,6 +49,9 @@ public static class MarkerGeometry
 
     /// <summary>控制点命中容差（屏幕像素）。</summary>
     public const float HandleHitTolerance = 10f;
+
+    /// <summary>大小控制点相对包围盒右下角的偏移（屏幕像素）。</summary>
+    public const float SizeHandleOffset = 8f;
 
     /// <summary>箭头的方向向量（Rotation 为顺时针角度，屏幕 Y 轴向下）。</summary>
     public static MapPoint Direction(float rotationDegrees)
@@ -84,10 +90,127 @@ public static class MarkerGeometry
     /// <summary>圆半径（归一化，相对图宽）。</summary>
     public static float GetCircleRadiusNormalized(Models.Marker m) => MathF.Abs(m.Size);
 
+    /// <summary>
+    /// 描边 / 线宽（屏幕像素）。Thickness 优先；为 0 时按旧规则从 Size 推导，保证旧数据渲染一致。
+    /// </summary>
+    public static float GetStrokeWidthPixels(Models.Marker m, ViewportState vp)
+    {
+        var displayWidth = vp.DisplayWidth;
+        if (m.Thickness > 0f) return MathF.Max(0.8f, m.Thickness * displayWidth);
+
+        var sizePx = MathF.Abs(m.Size) * displayWidth;
+        return m.Type switch
+        {
+            Models.MarkerType.Circle => MathF.Max(1f, MathF.Min(2f, sizePx * 0.1f)),
+            Models.MarkerType.Arrow => MathF.Max(2f, sizePx * 0.16f),
+            _ => MathF.Max(1f, sizePx),
+        };
+    }
+
+    /// <summary>自由笔画的屏幕坐标折线。</summary>
+    public static MapPoint[] GetStrokeScreenPoints(Models.Marker m, ViewportState vp)
+    {
+        var points = m.Points;
+        if (points is null || points.Length == 0) return Array.Empty<MapPoint>();
+
+        var result = new MapPoint[points.Length];
+        for (var i = 0; i < points.Length; i++)
+        {
+            result[i] = vp.NormalizedToScreen(points[i].X, points[i].Y);
+        }
+        return result;
+    }
+
+    /// <summary>标记在屏幕上的包围盒（选中框 / 大小控制点定位用）。</summary>
+    public static MapRect GetScreenBounds(Models.Marker m, ViewportState vp)
+    {
+        var displayWidth = vp.DisplayWidth;
+        var sizePx = MathF.Abs(m.Size) * displayWidth;
+        var anchor = vp.NormalizedToScreen(m.X, m.Y);
+
+        switch (m.Type)
+        {
+            case Models.MarkerType.Point:
+            {
+                var half = MathF.Max(sizePx / 2f, 5f);
+                return new MapRect(anchor.X - half, anchor.Y - half, half * 2, half * 2);
+            }
+            case Models.MarkerType.Text:
+            {
+                var fontPx = MathF.Max(sizePx, 8f);
+                var text = m.Text ?? string.Empty;
+                var w = MathF.Max(fontPx * 0.62f * Math.Max(text.Length, 1), fontPx);
+                var h = fontPx * 1.35f;
+                return new MapRect(anchor.X, anchor.Y, w, h);
+            }
+            case Models.MarkerType.Arrow:
+            {
+                var tip = GetArrowTipScreen(m, vp);
+                var thickness = GetStrokeWidthPixels(m, vp);
+                var left = MathF.Min(anchor.X, tip.X) - thickness;
+                var top = MathF.Min(anchor.Y, tip.Y) - thickness;
+                var right = MathF.Max(anchor.X, tip.X) + thickness;
+                var bottom = MathF.Max(anchor.Y, tip.Y) + thickness;
+                return new MapRect(left, top, right - left, bottom - top);
+            }
+            case Models.MarkerType.Line:
+            {
+                var end = vp.NormalizedToScreen(m.EndX, m.EndY);
+                var pad = MathF.Max(GetStrokeWidthPixels(m, vp), 3f);
+                var left = MathF.Min(anchor.X, end.X) - pad;
+                var top = MathF.Min(anchor.Y, end.Y) - pad;
+                var right = MathF.Max(anchor.X, end.X) + pad;
+                var bottom = MathF.Max(anchor.Y, end.Y) + pad;
+                return new MapRect(left, top, right - left, bottom - top);
+            }
+            case Models.MarkerType.Circle:
+            {
+                var radiusPx = MathF.Max(sizePx, 2f) + GetStrokeWidthPixels(m, vp) / 2f;
+                return new MapRect(anchor.X - radiusPx, anchor.Y - radiusPx, radiusPx * 2, radiusPx * 2);
+            }
+            case Models.MarkerType.Rectangle:
+            {
+                var end = vp.NormalizedToScreen(m.EndX, m.EndY);
+                var pad = GetStrokeWidthPixels(m, vp) / 2f;
+                var left = MathF.Min(anchor.X, end.X) - pad;
+                var top = MathF.Min(anchor.Y, end.Y) - pad;
+                var right = MathF.Max(anchor.X, end.X) + pad;
+                var bottom = MathF.Max(anchor.Y, end.Y) + pad;
+                return new MapRect(left, top, MathF.Max(right - left, 1f), MathF.Max(bottom - top, 1f));
+            }
+            case Models.MarkerType.Stroke:
+            {
+                var points = GetStrokeScreenPoints(m, vp);
+                if (points.Length == 0)
+                {
+                    var half = MathF.Max(sizePx / 2f, 5f);
+                    return new MapRect(anchor.X - half, anchor.Y - half, half * 2, half * 2);
+                }
+
+                var pad = MathF.Max(GetStrokeWidthPixels(m, vp) / 2f, 2f);
+                float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+                foreach (var p in points)
+                {
+                    minX = MathF.Min(minX, p.X);
+                    minY = MathF.Min(minY, p.Y);
+                    maxX = MathF.Max(maxX, p.X);
+                    maxY = MathF.Max(maxY, p.Y);
+                }
+                return new MapRect(minX - pad, minY - pad, MathF.Max(maxX - minX, 1f) + pad * 2, MathF.Max(maxY - minY, 1f) + pad * 2);
+            }
+            default:
+            {
+                var half = MathF.Max(sizePx / 2f, 5f);
+                return new MapRect(anchor.X - half, anchor.Y - half, half * 2, half * 2);
+            }
+        }
+    }
+
     /// <summary>获取某标记的控制点（屏幕坐标）。不支持的标记返回空列表。</summary>
     public static IReadOnlyList<HandleInfo> GetHandles(Models.Marker m, ViewportState vp)
     {
         if (m is null || !vp.IsValid) return Array.Empty<HandleInfo>();
+
         switch (m.Type)
         {
             case Models.MarkerType.Arrow:
@@ -111,6 +234,15 @@ public static class MarkerGeometry
                 var p = vp.NormalizedToScreen(m.EndX, m.EndY);
                 return new[] { new HandleInfo(HandleKind.Corner, p.X, p.Y) };
             }
+            case Models.MarkerType.Point:
+            case Models.MarkerType.Text:
+            {
+                var bounds = GetScreenBounds(m, vp);
+                return new[]
+                {
+                    new HandleInfo(HandleKind.Size, bounds.Right + SizeHandleOffset, bounds.Bottom + SizeHandleOffset),
+                };
+            }
             default:
                 return Array.Empty<HandleInfo>();
         }
@@ -130,6 +262,25 @@ public static class MarkerGeometry
         return null;
     }
 
+    /// <summary>由「大小控制点」拖动位置反算新的 Size（Point=图标宽度，Text=字号）。</summary>
+    public static float ComputeSizeFromHandle(Models.Marker m, MapPoint screenPoint, ViewportState vp)
+    {
+        var displayWidth = MathF.Max(vp.DisplayWidth, 1e-3f);
+        var anchor = vp.NormalizedToScreen(m.X, m.Y);
+
+        if (m.Type == Models.MarkerType.Text)
+        {
+            // 字号 ≈ (光标到文本左上角的纵向距离) / 1.35
+            var height = MathF.Max(screenPoint.Y - anchor.Y, 6f);
+            return height / 1.35f / displayWidth;
+        }
+
+        // 图标：以中心为基准，宽度 = 2 × 光标到中心的较大轴向距离
+        var dx = MathF.Abs(screenPoint.X - anchor.X);
+        var dy = MathF.Abs(screenPoint.Y - anchor.Y);
+        return MathF.Max(dx, dy) * 2f / displayWidth;
+    }
+
     /// <summary>命中标记检测（屏幕坐标）。</summary>
     public static bool HitTest(Models.Marker m, MapPoint screenPoint, ViewportState vp, float tolerance = 8f)
     {
@@ -137,6 +288,7 @@ public static class MarkerGeometry
         var displayWidth = vp.DisplayWidth;
         var center = vp.NormalizedToScreen(m.X, m.Y);
         var sizePx = MathF.Abs(m.Size) * displayWidth;
+        var strokePx = GetStrokeWidthPixels(m, vp);
 
         switch (m.Type)
         {
@@ -147,32 +299,25 @@ public static class MarkerGeometry
             }
             case Models.MarkerType.Text:
             {
-                // 粗略包围盒（渲染时按字号与字数估算），命中判定只需足够接近
-                var fontPx = MathF.Max(MathF.Abs(m.Size) * displayWidth, 8f);
-                var text = m.Text ?? string.Empty;
-                var w = MathF.Max(fontPx * 0.6f * text.Length, fontPx);
-                var h = fontPx * 1.4f;
-                var rect = new MapRect(center.X, center.Y, w, h);
-                return rect.Contains(new MapPoint(screenPoint.X, screenPoint.Y)) ||
-                       center.DistanceTo(screenPoint) <= tolerance;
+                var bounds = GetScreenBounds(m, vp);
+                return bounds.Contains(screenPoint) || center.DistanceTo(screenPoint) <= tolerance;
             }
             case Models.MarkerType.Arrow:
             {
                 var tip = GetArrowTipScreen(m, vp);
-                return DistanceToSegment(screenPoint, center, tip) <= MathF.Max(tolerance, 6f);
+                return DistanceToSegment(screenPoint, center, tip) <= MathF.Max(tolerance, strokePx / 2f + 4f);
             }
             case Models.MarkerType.Line:
             {
                 var end = vp.NormalizedToScreen(m.EndX, m.EndY);
-                var tol = MathF.Max(tolerance, sizePx / 2f + 4f);
-                return DistanceToSegment(screenPoint, center, end) <= tol;
+                return DistanceToSegment(screenPoint, center, end) <= MathF.Max(tolerance, strokePx / 2f + 4f);
             }
             case Models.MarkerType.Circle:
             {
                 var radiusPx = MathF.Abs(m.Size) * displayWidth;
                 var d = center.DistanceTo(screenPoint);
-                return MathF.Abs(d - radiusPx) <= MathF.Max(tolerance, 6f) ||
-                       d <= MathF.Max(tolerance, 6f);
+                var tol = MathF.Max(tolerance, strokePx / 2f + 4f);
+                return MathF.Abs(d - radiusPx) <= tol || d <= tol;
             }
             case Models.MarkerType.Rectangle:
             {
@@ -182,13 +327,26 @@ public static class MarkerGeometry
                 var right = MathF.Max(p1.X, p2.X);
                 var top = MathF.Min(p1.Y, p2.Y);
                 var bottom = MathF.Max(p1.Y, p2.Y);
-                var inside = screenPoint.X >= left - tolerance && screenPoint.X <= right + tolerance &&
-                             screenPoint.Y >= top - tolerance && screenPoint.Y <= bottom + tolerance;
+                var tol = MathF.Max(tolerance, strokePx / 2f + 4f);
+                var inside = screenPoint.X >= left - tol && screenPoint.X <= right + tol &&
+                             screenPoint.Y >= top - tol && screenPoint.Y <= bottom + tol;
                 if (!inside) return false;
-                // 靠近边框或足够小（内部也算选中）
-                var nearEdgeX = MathF.Min(MathF.Abs(screenPoint.X - left), MathF.Abs(screenPoint.X - right)) <= tolerance;
-                var nearEdgeY = MathF.Min(MathF.Abs(screenPoint.Y - top), MathF.Abs(screenPoint.Y - bottom)) <= tolerance;
-                return nearEdgeX || nearEdgeY || (right - left) < tolerance * 2f || (bottom - top) < tolerance * 2f;
+                var nearEdgeX = MathF.Min(MathF.Abs(screenPoint.X - left), MathF.Abs(screenPoint.X - right)) <= tol;
+                var nearEdgeY = MathF.Min(MathF.Abs(screenPoint.Y - top), MathF.Abs(screenPoint.Y - bottom)) <= tol;
+                return nearEdgeX || nearEdgeY || (right - left) < tol * 2f || (bottom - top) < tol * 2f;
+            }
+            case Models.MarkerType.Stroke:
+            {
+                var points = GetStrokeScreenPoints(m, vp);
+                if (points.Length == 0) return false;
+                if (points.Length == 1) return points[0].DistanceTo(screenPoint) <= MathF.Max(tolerance, strokePx / 2f + 4f);
+
+                var tol = MathF.Max(tolerance, strokePx / 2f + 4f);
+                for (var i = 1; i < points.Length; i++)
+                {
+                    if (DistanceToSegment(screenPoint, points[i - 1], points[i]) <= tol) return true;
+                }
+                return false;
             }
             default:
                 return center.DistanceTo(screenPoint) <= MathF.Max(tolerance, sizePx / 2f);

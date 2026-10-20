@@ -26,8 +26,7 @@ public class SessionIntegrationTests
             ImageHeight = 240,
             Port = 0, // 由系统分配，避免端口冲突
             RoomPassword = password,
-            GridCols = 8,
-            GridRows = 6,
+            GridDensity = 26,
         };
 
     private static SessionConfig JoinConfig(int port, string password = "pw", string name = "队友")
@@ -168,9 +167,13 @@ public class SessionIntegrationTests
         Assert.Single(session.MarkerSnapshot());
         Assert.True(session.CanModify(marker));
 
-        // 网格设置（本地视图设置）
-        session.SetGrid(10, 7);
-        Assert.Equal(10, session.Map.GridCols);
+        // 网格设置（本地视图设置；行列按图片比例自动推导，每边上限 10）
+        session.SetGridDensity(10);
+        Assert.InRange(session.Map.GridCols, 1, MapInfo.MaxGrid);
+        Assert.InRange(session.Map.GridRows, 1, MapInfo.MaxGrid);
+        var cellWidth = 320f / session.Map.GridCols;
+        var cellHeight = 240f / session.Map.GridRows;
+        Assert.InRange(cellWidth / cellHeight, 0.94, 1.06); // 格子接近正方形
         session.ToggleGrid();
         Assert.False(session.Map.GridVisible);
     }

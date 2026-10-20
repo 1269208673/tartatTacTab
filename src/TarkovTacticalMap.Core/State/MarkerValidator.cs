@@ -10,19 +10,28 @@ public enum ValidateStatus
     InvalidId = 1,
     InvalidType = 2,
     InvalidColor = 3,
+
+    /// <summary>笔画点数不足（Stroke 至少需要 2 个点）。</summary>
+    InvalidPoints = 4,
 }
 
 /// <summary>
-/// 标记合法性校验与规范化：坐标 clamp 到 0~1、Size 限幅、Rotation 归一化、颜色规范化、
-/// 文本长度截断。所有进出网络/状态表的标记都应先经过这里。
+/// 标记合法性校验与规范化：坐标 clamp 到 0~1、Size / Thickness 限幅、Rotation 归一化、
+/// 颜色规范化、文本长度截断、笔画点数限幅。所有进出网络/状态表的标记都应先经过这里。
 /// </summary>
 public static class MarkerValidator
 {
     /// <summary>Size 上限（归一化，相对图宽）。</summary>
     public const float MaxSize = 5f;
 
+    /// <summary>Thickness 上限（归一化，相对图宽）。</summary>
+    public const float MaxThickness = 1f;
+
     /// <summary>文本最大长度。</summary>
     public const int MaxTextLength = 500;
+
+    /// <summary>自由笔画最大点数（约 2000 段，单帧远小于 8MB）。</summary>
+    public const int MaxStrokePoints = 2000;
 
     /// <summary>在副本上做规范化，不修改入参。</summary>
     public static Marker Normalize(Marker source)
@@ -34,6 +43,7 @@ public static class MarkerValidator
         m.EndX = Clamp01(m.EndX);
         m.EndY = Clamp01(m.EndY);
         m.Size = Math.Clamp(m.Size, 0f, MaxSize);
+        m.Thickness = Math.Clamp(m.Thickness, 0f, MaxThickness);
         m.Rotation = NormalizeRotation(m.Rotation);
 
         var color = ColorHex.Normalize(m.Color);
@@ -46,10 +56,31 @@ public static class MarkerValidator
 
         m.IconId = string.IsNullOrWhiteSpace(m.IconId) ? null : m.IconId.Trim();
         m.OwnerId ??= string.Empty;
+
+        if (m.Points is not null)
+        {
+            if (m.Points.Length == 0)
+            {
+                m.Points = null;
+            }
+            else if (m.Points.Length > MaxStrokePoints)
+            {
+                m.Points = m.Points[..MaxStrokePoints];
+            }
+
+            if (m.Points is not null)
+            {
+                for (var i = 0; i < m.Points.Length; i++)
+                {
+                    m.Points[i] = new MarkerPoint(Clamp01(m.Points[i].X), Clamp01(m.Points[i].Y));
+                }
+            }
+        }
+
         return m;
     }
 
-    /// <summary>校验标记是否可被接受（Id 与非空 OwnerId 必须存在）。</summary>
+    /// <summary>校验标记是否可被接受（Id 必须存在，笔画必须至少 2 个点）。</summary>
     public static (ValidateStatus Status, Marker? Marker) Validate(Marker? source)
     {
         if (source is null) return (ValidateStatus.InvalidType, null);
@@ -59,6 +90,11 @@ public static class MarkerValidator
         {
             // 未知 MarkerType：保留原值（向前兼容，渲染层回退），但要求至少不是负数
             if ((int)source.Type < 0) return (ValidateStatus.InvalidType, null);
+        }
+
+        if (source.Type == MarkerType.Stroke && (source.Points is null || source.Points.Length < 2))
+        {
+            return (ValidateStatus.InvalidPoints, null);
         }
 
         var normalized = Normalize(source);

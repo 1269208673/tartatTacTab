@@ -27,6 +27,9 @@ public sealed class AppSettings
 
     public float DefaultPointSize { get; set; } = MarkerDefaults.PointSize;
 
+    /// <summary>一级网格密度（每边最多格数）。</summary>
+    public int GridDensity { get; set; } = MapInfo.DefaultGridDensity;
+
     public string? LastImagePath { get; set; }
 
     /// <summary>设置文件路径。</summary>
@@ -75,5 +78,6 @@ public sealed class AppSettings
         if (LastPort is < 1 or > 65535) LastPort = 27015;
         if (!Core.Utils.ColorHex.IsValid(DefaultColor)) DefaultColor = MarkerDefaults.DefaultColor;
         DefaultPointSize = Math.Clamp(DefaultPointSize, 0.002f, 0.2f);
+        GridDensity = Math.Clamp(GridDensity, 2, MapInfo.MaxGrid);
     }
 }

@@ -1,7 +1,7 @@
 namespace TarkovTacticalMap.Core.Geometry;
 
 /// <summary>
-/// 网格引用（如 "C3"）。列从左到右 A,B,C…，行从上到下 1,2,3…
+/// 网格引用（如 "C3"）。列从左到右 A,B,C…（最多 A~J），行从上到下 0,1,2…（最多 0~9）。
 /// 网格只做视觉参考与辅助定位，不参与标记存储。
 /// </summary>
 public static class GridReference
@@ -21,10 +21,10 @@ public static class GridReference
     {
         if (nx < 0f || nx > 1f || ny < 0f || ny > 1f) return null;
         var (col, row) = GetCell(nx, ny, cols, rows);
-        return ColumnLabel(col) + (row + 1).ToString();
+        return ColumnLabel(col) + RowLabel(row);
     }
 
-    /// <summary>列序号 → 列标签（0 → A，25 → Z，26 → AA）。</summary>
+    /// <summary>列序号 → 列标签（0 → A，9 → J，25 → Z，26 → AA）。</summary>
     public static string ColumnLabel(int col)
     {
         if (col < 0) return "?";
@@ -38,4 +38,7 @@ public static class GridReference
         while (n >= 0);
         return sb.ToString();
     }
+
+    /// <summary>行序号 → 行标签（从 0 开始：0,1,2…）。</summary>
+    public static string RowLabel(int row) => row.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }

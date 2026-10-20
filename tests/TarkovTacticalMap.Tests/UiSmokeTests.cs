@@ -8,6 +8,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using TarkovTacticalMap.App.Rendering;
 using TarkovTacticalMap.App.Services;
+using TarkovTacticalMap.Core.Geometry;
 using TarkovTacticalMap.Core.Models;
 using TarkovTacticalMap.App.ViewModels;
 using TarkovTacticalMap.App.Views;
@@ -62,8 +63,7 @@ public class UiSmokeTests
                     ImageBytes = TestHelpers.CreateTestImage(),
                     ImageWidth = 320,
                     ImageHeight = 240,
-                    GridCols = 8,
-                    GridRows = 6,
+                    GridDensity = 26,
                 }, cache).GetAwaiter().GetResult();
 
                 var viewModel = new MainViewModel(Dispatcher.CurrentDispatcher, settings, cache);
@@ -75,7 +75,9 @@ public class UiSmokeTests
                 // 会话已接入视图模型
                 Assert.NotNull(viewModel.Session);
                 Assert.Equal(SessionMode.Offline, viewModel.Session!.Mode);
-                Assert.Equal(11, viewModel.Tools.Count); // 选择 + 5 语义图标 + 箭头/圆圈/方框/线/文本
+                // 选择 + 5 语义图标 + 箭头/圆圈/方框/线/文本/画笔
+                Assert.Equal(12, viewModel.Tools.Count);
+                Assert.Contains(viewModel.Tools, t => t.Kind == ToolKind.Freehand && t.Label == "画笔");
                 Assert.Equal(8, viewModel.Swatches.Count);
 
                 // 视图模型交互路径
@@ -206,6 +208,97 @@ public class UiSmokeTests
                 viewModel.DeleteSelectedAsync().GetAwaiter().GetResult();
                 Pump();
                 Assert.Empty(viewModel.Markers);
+
+                // ── 撤销 / 重做 ──
+                Assert.True(viewModel.CanUndo);
+                Assert.True(viewModel.UndoAsync().GetAwaiter().GetResult());
+                WaitFor(() => viewModel.Markers.Count == 1, TimeSpan.FromSeconds(5));
+                Assert.Equal(second.Id, viewModel.Markers[0].Id);
+
+                Assert.True(viewModel.CanRedo);
+                Assert.True(viewModel.RedoAsync().GetAwaiter().GetResult());
+                WaitFor(() => viewModel.Markers.Count == 0, TimeSpan.FromSeconds(5));
+
+                // 撤销「新增」→ 标记消失；再撤销一次 → 回到空状态
+                Assert.True(viewModel.UndoAsync().GetAwaiter().GetResult()); // 撤销 delete
+                WaitFor(() => viewModel.Markers.Count == 1, TimeSpan.FromSeconds(5));
+                Assert.True(viewModel.UndoAsync().GetAwaiter().GetResult()); // 撤销 add
+                WaitFor(() => viewModel.Markers.Count == 0, TimeSpan.FromSeconds(5));
+
+                // ── 自由笔画：直接构造带折线的原型并提交 ──
+                viewModel.SelectTool(ToolKind.Freehand);
+                Assert.Equal(MarkerType.Stroke, ToolKinds.MarkerTypeOf(ToolKind.Freehand));
+                var stroke = viewModel.CreatePrototype(ToolKind.Freehand, new Core.Geometry.MapPoint(0.2f, 0.2f));
+                stroke.Points = new[]
+                {
+                    new MarkerPoint(0.2f, 0.2f),
+                    new MarkerPoint(0.3f, 0.25f),
+                    new MarkerPoint(0.4f, 0.2f),
+                };
+                stroke.Thickness = 0.006f;
+                viewModel.AddMarkerAsync(stroke).GetAwaiter().GetResult();
+                Pump();
+                var storedStroke = Assert.Single(viewModel.Markers);
+                Assert.Equal(MarkerType.Stroke, storedStroke.Type);
+                Assert.Equal(3, storedStroke.PointCount);
+                Assert.Equal(0.006f, storedStroke.Thickness, 4);
+
+                // 笔画命中检测
+                viewModel.Viewport.SetCanvas(800f, 600f);
+                viewModel.Viewport.SetImage(320, 240);
+                var onStroke = viewModel.Viewport.NormalizedToScreen(0.3f, 0.25f);
+                Assert.Equal(stroke.Id, viewModel.HitTestMarker(onStroke.X, onStroke.Y));
+
+                // ── 大小控制点（放置后可直接调整大小）──
+                viewModel.SelectTool(ToolKind.Kill);
+                var icon = viewModel.CreatePrototype(ToolKind.Kill, new Core.Geometry.MapPoint(0.7f, 0.7f));
+                viewModel.AddMarkerAsync(icon).GetAwaiter().GetResult();
+                Pump();
+                viewModel.SelectMarker(icon.Id);
+                var handle = viewModel.HitTestHandle(
+                    viewModel.Viewport.NormalizedToScreen(icon.X, icon.Y).X + 200f,
+                    viewModel.Viewport.NormalizedToScreen(icon.X, icon.Y).Y);
+                Assert.Null(handle); // 远离手柄不应命中
+
+                var handles = MarkerGeometry.GetHandles(viewModel.FindMarker(icon.Id)!, viewModel.Viewport);
+                var sizeHandle = Assert.Single(handles);
+                Assert.Equal(HandleKind.Size, sizeHandle.Kind);
+
+                var newSize = MarkerGeometry.ComputeSizeFromHandle(
+                    viewModel.FindMarker(icon.Id)!, new Core.Geometry.MapPoint(sizeHandle.ScreenX + 30f, sizeHandle.ScreenY + 30f),
+                    viewModel.Viewport);
+                Assert.True(newSize > icon.Size);
+
+                // ── 粗细：选中圆圈后改 Thickness ──
+                viewModel.SelectTool(ToolKind.Circle);
+                var circle = viewModel.CreatePrototype(ToolKind.Circle, new Core.Geometry.MapPoint(0.5f, 0.4f));
+                viewModel.AddMarkerAsync(circle).GetAwaiter().GetResult();
+                Pump();
+                viewModel.SelectMarker(circle.Id);
+                Assert.True(viewModel.CanEditThickness);
+                viewModel.CurrentThickness = 0.012f;
+                viewModel.ApplyCurrentThicknessToSelection();
+                WaitFor(() =>
+                {
+                    var m = viewModel.FindMarker(circle.Id);
+                    return m is not null && Math.Abs(m.Thickness - 0.012f) < 1e-4f;
+                }, TimeSpan.FromSeconds(5));
+                Assert.Equal(0.012f, viewModel.FindMarker(circle.Id)!.Thickness, 4);
+
+                // ── 嵌套网格引用 ──
+                viewModel.Viewport.SetCanvas(900f, 700f);
+                viewModel.Viewport.SetImage(320, 240);
+                viewModel.Viewport.ZoomAt(450f, 350f, 1f);
+                viewModel.UpdateHover(450f, 350f);
+                var shallow = viewModel.GridLabel;
+                Assert.NotEqual("—", shallow);
+                Assert.DoesNotContain(':', shallow);
+
+                viewModel.Viewport.ZoomAt(450f, 350f, 8f);
+                viewModel.UpdateHover(450f, 350f);
+                _output.WriteLine($"缩放 8x 时网格引用：{viewModel.GridLabel}");
+                Assert.Contains(':', viewModel.GridLabel);
+                Assert.True(NestedGrid.SplitReference(viewModel.GridLabel).Count >= 2);
 
                 window.UpdateLayout();
                 Pump();

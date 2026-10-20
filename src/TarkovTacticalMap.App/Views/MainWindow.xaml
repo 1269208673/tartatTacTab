@@ -21,6 +21,12 @@
                 <Separator />
                 <MenuItem Header="退出" Click="OnExitClick" />
             </MenuItem>
+            <MenuItem Header="编辑(_E)">
+                <MenuItem Header="撤销" InputGestureText="Ctrl+Z" Click="OnUndoClick"
+                          IsEnabled="{Binding CanUndo}" />
+                <MenuItem Header="重做" InputGestureText="Ctrl+Y" Click="OnRedoClick"
+                          IsEnabled="{Binding CanRedo}" />
+            </MenuItem>
             <MenuItem Header="房间(_R)">
                 <MenuItem Header="玩家列表…" Click="OnPlayerListClick" />
                 <MenuItem Header="断开连接" Click="OnDisconnectClick" />
@@ -46,6 +52,7 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="网格 " Foreground="{StaticResource TextSecondary}" />
                     <TextBlock Text="{Binding GridLabel}" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" />
+                    <TextBlock Text="{Binding GridDepthText}" Foreground="{StaticResource TextSecondary}" Margin="4,0,0,0" />
                 </StackPanel>
             </StatusBarItem>
             <Separator />
@@ -131,6 +138,12 @@
                                 SmallChange="0.002" LargeChange="0.01" Margin="4,0" />
                         <TextBlock Text="{Binding CurrentSize, StringFormat={}{0:F3}}"
                                    Foreground="{StaticResource TextSecondary}" Margin="4,0,0,0" />
+
+                        <TextBlock Text="粗细（描边 / 线宽，相对图宽）" Style="{StaticResource SectionTitle}" />
+                        <Slider x:Name="ThicknessSlider" Minimum="0.001" Maximum="0.08" Value="{Binding CurrentThickness}"
+                                SmallChange="0.001" LargeChange="0.005" Margin="4,0" />
+                        <TextBlock Text="{Binding CurrentThickness, StringFormat={}{0:F4}}"
+                                   Foreground="{StaticResource TextSecondary}" Margin="4,0,0,0" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -170,10 +183,16 @@
                                 <TextBox Text="{Binding SelectionColorText, UpdateSourceTrigger=LostFocus}"
                                          IsEnabled="{Binding CanEditSelection}" />
 
-                                <TextBlock Text="大小 / 线宽" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="大小（几何尺寸：图标宽度 / 字号 / 箭头长度 / 半径）" Style="{StaticResource SectionTitle}" />
                                 <Slider Minimum="0.001" Maximum="0.5" Value="{Binding SelectionSize}"
                                         IsEnabled="{Binding CanEditSelection}" />
                                 <TextBlock Text="{Binding SelectionSize, StringFormat={}{0:F4}}"
+                                           Foreground="{StaticResource TextSecondary}" />
+
+                                <TextBlock Text="粗细（箭头 / 圆 / 直线 / 方框 / 笔画）" Style="{StaticResource SectionTitle}" />
+                                <Slider Minimum="0.001" Maximum="0.08" Value="{Binding SelectionThickness}"
+                                        IsEnabled="{Binding CanEditThickness}" />
+                                <TextBlock Text="{Binding SelectionThickness, StringFormat={}{0:F4}}"
                                            Foreground="{StaticResource TextSecondary}" />
 
                                 <TextBlock Text="旋转（度）" Style="{StaticResource SectionTitle}" />
@@ -208,7 +227,7 @@
 
                         <TextBlock Text="鼠标 / 快捷键" Style="{StaticResource SectionTitle}" />
                         <TextBlock Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"
-                                   Text="滚轮：缩放 / 右键拖拽或空格+左键：平移 / 中键：快速删除光标下的标记 / 左键：选择或放置 / 双击文本：编辑 / Delete：删除选中 / Esc：取消选中 / Ctrl+0：重置视图" />
+                                   Text="滚轮：缩放 / 右键拖拽或空格+左键：平移 / 中键：快速删除光标下的标记 / 左键：选择或放置 / 拖标记右下角手柄：调整大小 / 双击文本：编辑 / Delete：删除选中 / Ctrl+Z：撤销 / Ctrl+Y：重做 / Esc：取消选中 / Ctrl+0：重置视图" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>

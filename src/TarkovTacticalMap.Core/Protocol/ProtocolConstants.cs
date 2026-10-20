@@ -87,8 +87,9 @@ public static class ProtocolConstants
     /// <summary>
     /// 协议版本。数据模型 / 消息表变更时递增，房主据此提示客户端版本不一致。
     /// 1 = 首版（M1~M6 完整消息表）。
+    /// 2 = Marker 增加 Thickness（独立粗细）与 Points（自由笔画），新增 MarkerType.Stroke。
     /// </summary>
-    public const int ProtocolVersion = 1;
+    public const int ProtocolVersion = 2;
 
     /// <summary>单帧 payload 上限：8MB，超过视为协议错误并断开。</summary>
     public const int MaxFrameSize = 8 * 1024 * 1024;

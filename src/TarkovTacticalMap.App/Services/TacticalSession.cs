@@ -31,9 +31,8 @@ public sealed class SessionConfig
 
     public int ImageHeight { get; set; }
 
-    public int GridCols { get; set; } = MapInfo.DefaultGridCols;
-
-    public int GridRows { get; set; } = MapInfo.DefaultGridRows;
+    /// <summary>一级网格密度（每边最多格数）；行列数按图片宽高比自动推导。</summary>
+    public int GridDensity { get; set; } = MapInfo.DefaultGridDensity;
 
     /// <summary>房主监听端口。</summary>
     public int Port { get; set; } = ProtocolConstants.DefaultPort;
@@ -80,8 +79,8 @@ public sealed class TacticalSession : IAsyncDisposable
         Map = new MapInfo
         {
             MapId = Guid.NewGuid().ToString("D"),
-            GridCols = Math.Clamp(config.GridCols, MapInfo.MinGrid, MapInfo.MaxGrid),
-            GridRows = Math.Clamp(config.GridRows, MapInfo.MinGrid, MapInfo.MaxGrid),
+            GridCols = MapInfo.DefaultGridDensity,
+            GridRows = MapInfo.DefaultGridDensity,
             GridVisible = true,
         };
     }
@@ -214,15 +213,19 @@ public sealed class TacticalSession : IAsyncDisposable
         var height = Config.ImageHeight > 0 ? Config.ImageHeight : 1200;
         var hash = HashUtil.Sha256Hex(bytes);
 
+        // 一级网格：按图片宽高比自动推出行列数（格子接近正方形），密度由配置决定
+        var density = Math.Clamp(Config.GridDensity, 2, MapInfo.MaxGrid);
+        var (cols, rows) = MapInfo.ComputeAspectGrid(width, height, density);
+
         Map = new MapInfo
         {
             MapId = Map.MapId,
             ImageHash = hash,
             ImageWidth = width,
             ImageHeight = height,
-            GridCols = Map.GridCols,
-            GridRows = Map.GridRows,
-            GridVisible = true,
+            GridCols = cols,
+            GridRows = rows,
+            GridVisible = Map.GridVisible,
         };
         ImageBytes = bytes;
         _cache.Save(hash, bytes);
@@ -550,12 +553,23 @@ public sealed class TacticalSession : IAsyncDisposable
 
     // ── 网格设置（本地视图设置，不写入协议）──────────────────────────────
 
+    /// <summary>设置一级网格密度（每边最多格数），行列数按图片宽高比推导。</summary>
+    public void SetGridDensity(int density)
+    {
+        var clone = Map.Clone();
+        clone.ApplyGridDensity(density);
+        Config.GridDensity = Math.Clamp(density, 2, MapInfo.MaxGrid);
+        Map = clone;
+        MapChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void SetGrid(int cols, int rows, bool? visible = null)
     {
         var clone = Map.Clone();
         clone.GridCols = Math.Clamp(cols, MapInfo.MinGrid, MapInfo.MaxGrid);
         clone.GridRows = Math.Clamp(rows, MapInfo.MinGrid, MapInfo.MaxGrid);
         if (visible.HasValue) clone.GridVisible = visible.Value;
+        Config.GridDensity = clone.GridDensity;
         Map = clone;
         MapChanged?.Invoke(this, EventArgs.Empty);
     }

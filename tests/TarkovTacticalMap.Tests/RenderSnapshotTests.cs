@@ -281,6 +281,239 @@ public class RenderSnapshotTests
         CreatedAt = (long)(x * 1000),
     };
 
+    private const string ArrowColor = "#FF5252";
+    private const string StrokeColor = "#69F0AE";
+    private const string CircleColor = "#40C4FF";
+
+    /// <summary>画出单个标记，返回统计信息。</summary>
+    private static (SKBitmap Bitmap, int PaintedPixels) RenderSingleMarker(Marker marker, int width = 600, int height = 400)
+    {
+        var viewport = new ViewportState();
+        viewport.SetCanvas(width, height);
+        viewport.SetImage(width, height);
+
+        var scene = new RenderScene
+        {
+            Viewport = viewport,
+            Map = new MapInfo { ImageWidth = width, ImageHeight = height, GridVisible = false },
+            Markers = new List<Marker> { marker },
+            Background = null,
+        };
+
+        var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            new MapRenderer().Draw(canvas, scene);
+        }
+
+        var color = new SKColor(Core.Utils.ColorHex.ToArgb(marker.Color));
+        return (bitmap, CountPixels(bitmap, color, 24));
+    }
+
+    [Fact]
+    public void Arrow_LongerArrowIsNotThicker()
+    {
+        // 同样的厚度，长度差 4 倍：杆粗（同一 x 处的竖直笔画宽度）必须一样
+        var shortArrow = new Marker
+        {
+            Id = "short", Type = MarkerType.Arrow, X = 0.1f, Y = 0.5f, Size = 0.1f,
+            Rotation = 0f, Thickness = 0.006f, Color = ArrowColor, OwnerId = "p", CreatedAt = 1,
+        };
+        var longArrow = new Marker
+        {
+            Id = "long", Type = MarkerType.Arrow, X = 0.1f, Y = 0.5f, Size = 0.6f,
+            Rotation = 0f, Thickness = 0.006f, Color = ArrowColor, OwnerId = "p", CreatedAt = 2,
+        };
+
+        var (shortBitmap, _) = RenderSingleMarker(shortArrow);
+        var (longBitmap, _) = RenderSingleMarker(longArrow);
+        using var _a = shortBitmap;
+        using var _b = longBitmap;
+
+        var color = new SKColor(Core.Utils.ColorHex.ToArgb(ArrowColor));
+        // 两条箭头都覆盖 x = 100 处的杆部（箭尾 x=60）
+        var shortThickness = VerticalRunLength(shortBitmap, x: 100, color);
+        var longThickness = VerticalRunLength(longBitmap, x: 100, color);
+
+        Assert.True(shortThickness > 0, "短箭头在取样位置应有笔画");
+        Assert.True(longThickness > 0, "长箭头在取样位置应有笔画");
+        Assert.InRange(longThickness, shortThickness - 1, shortThickness + 1);
+
+        // 长箭头总着色像素应显著多于短箭头（长度真的更长）
+        var (shortPixels, longPixels) = (CountPixels(shortBitmap, color, 24), CountPixels(longBitmap, color, 24));
+        Assert.True(longPixels > shortPixels * 1.8, $"长箭头像素 {longPixels} 应远多于短箭头 {shortPixels}");
+    }
+
+    [Fact]
+    public void Circle_ThicknessIsIndependentFromRadius()
+    {
+        var thin = new Marker
+        {
+            Id = "thin", Type = MarkerType.Circle, X = 0.5f, Y = 0.5f, Size = 0.12f,
+            Thickness = 0.002f, Color = CircleColor, OwnerId = "p", CreatedAt = 1,
+        };
+        var thick = thin.Clone();
+        thick.Id = "thick";
+        thick.Thickness = 0.012f;
+
+        var (thinBitmap, thinPixels) = RenderSingleMarker(thin);
+        var (thickBitmap, thickPixels) = RenderSingleMarker(thick);
+        using var _a = thinBitmap;
+        using var _b = thickBitmap;
+
+        // 半径一样 → 着色像素数量的差异只来自描边粗细
+        Assert.True(thickPixels > thinPixels * 2, $"粗描边像素 {thickPixels} 应远多于细描边 {thinPixels}");
+
+        var color = new SKColor(Core.Utils.ColorHex.ToArgb(CircleColor));
+        var thinWidth = VerticalRunLength(thinBitmap, x: 300, color);
+        var thickWidth = VerticalRunLength(thickBitmap, x: 300, color);
+        Assert.True(thickWidth > thinWidth, $"粗描边宽度 {thickWidth} 应大于细描边 {thinWidth}");
+    }
+
+    [Fact]
+    public void Stroke_RendersPolylineWithThickness()
+    {
+        var stroke = new Marker
+        {
+            Id = "stroke",
+            Type = MarkerType.Stroke,
+            Thickness = 0.008f,
+            Color = StrokeColor,
+            OwnerId = "p",
+            CreatedAt = 1,
+            Points = new[]
+            {
+                new MarkerPoint(0.1f, 0.7f),
+                new MarkerPoint(0.3f, 0.3f),
+                new MarkerPoint(0.5f, 0.7f),
+                new MarkerPoint(0.7f, 0.4f),
+            },
+        };
+
+        var (bitmap, painted) = RenderSingleMarker(stroke);
+        using var _ = bitmap;
+
+        Assert.True(painted > 200, $"笔画应画出足够多的像素（{painted}）");
+
+        var color = new SKColor(Core.Utils.ColorHex.ToArgb(StrokeColor));
+        // 折线经过的点附近应有颜色
+        Assert.True(VerticalRunLength(bitmap, x: 180, color) > 0);   // 0.3 * 600
+        Assert.True(VerticalRunLength(bitmap, x: 420, color) > 0);   // 0.7 * 600
+
+        var artifactDir = ArtifactDirectory();
+        Directory.CreateDirectory(artifactDir);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        File.WriteAllBytes(Path.Combine(artifactDir, "marker-stroke.png"), data.ToArray());
+    }
+
+    [Fact]
+    public void NestedGrid_DrawsSubDivisionLinesWhenZoomedIn()
+    {
+        var map = MapInfo.CreateBlank("hash", 1600, 1200);
+        map.ApplyGridDensity(26);
+
+        // 放大到能看到二级网格
+        var viewport = new ViewportState();
+        viewport.SetCanvas(900f, 700f);
+        viewport.SetImage(1600, 1200);
+        viewport.ZoomAt(450f, 350f, 12f);
+
+        var specs = NestedGrid.BuildSpecs(map);
+        var depth = NestedGrid.GetVisibleDepth(specs, viewport);
+        Assert.True(depth >= 2, $"缩放 12x 时应看到二级网格（实际 {depth}）");
+
+        var scene = new RenderScene
+        {
+            Viewport = viewport,
+            Map = map,
+            Markers = Array.Empty<Marker>(),
+            Background = null,
+            HoverPoint = new MapPoint(0.4242f, 0.3711f),
+        };
+
+        using var bitmap = new SKBitmap(900, 700, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            Assert.Null(Record.Exception(() => new MapRenderer().Draw(canvas, scene)));
+        }
+
+        // 网格线是浅色半透明，画面上应存在明显非背景色像素
+        var nonBackground = 0;
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                if (bitmap.GetPixel(x, y).Red > 40) nonBackground++;
+            }
+        }
+        Assert.True(nonBackground > 500, $"嵌套网格应画出可见线条（非背景像素 {nonBackground}）");
+
+        // 竖线检测：整列大部分像素被网格线覆盖 → 统计线位置与间距是否规则
+        var rawColumns = new List<int>();
+        for (var x = 0; x < bitmap.Width; x++)
+        {
+            var light = 0;
+            var samples = 0;
+            for (var y = 0; y < bitmap.Height; y += 4)
+            {
+                samples++;
+                if (bitmap.GetPixel(x, y).Red > 40) light++;
+            }
+            if (light > samples * 0.35) rawColumns.Add(x);
+        }
+
+        // 抗锯齿会让一条线占 2~3 列，合并相邻列后得到真正的线位置
+        var lineColumns = new List<int>();
+        foreach (var x in rawColumns)
+        {
+            if (lineColumns.Count == 0 || x - lineColumns[^1] > 1) lineColumns.Add(x);
+        }
+
+        Assert.True(lineColumns.Count >= 4, $"应检测到多条竖网格线（{lineColumns.Count}）");
+
+        var gaps = new List<int>();
+        for (var i = 1; i < lineColumns.Count; i++) gaps.Add(lineColumns[i] - lineColumns[i - 1]);
+        var minGap = gaps.Min();
+        _output.WriteLine($"竖网格线 {lineColumns.Count} 条，最小间距 {minGap}px（可见层级 {depth}）");
+        Assert.True(minGap >= 6, $"最细网格间距过小：{minGap}px");
+
+        // 最小间距应当等于最深层级的格宽（允许 ±3px 抗锯齿 / 取整误差）
+        var (levelW, _) = NestedGrid.GetCellSize(specs, depth);
+        var expectedGap = levelW * viewport.DisplayWidth;
+        _output.WriteLine($"最深层级格宽 {expectedGap:F1}px");
+        Assert.InRange(minGap, expectedGap - 3f, expectedGap + 3f);
+
+        var artifactDir = ArtifactDirectory();
+        Directory.CreateDirectory(artifactDir);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        File.WriteAllBytes(Path.Combine(artifactDir, "scene-nested-grid.png"), data.ToArray());
+    }
+
+    /// <summary>统计某一竖列上连续命中的着色像素个数（用来估算笔画粗细）。</summary>
+    private static int VerticalRunLength(SKBitmap bitmap, int x, SKColor color)
+    {
+        if (x < 0 || x >= bitmap.Width) return 0;
+
+        var best = 0;
+        var run = 0;
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            var pixel = bitmap.GetPixel(x, y);
+            if (pixel.Alpha > 30 && ColorNear(pixel, color, 40))
+            {
+                run++;
+                best = Math.Max(best, run);
+            }
+            else
+            {
+                run = 0;
+            }
+        }
+        return best;
+    }
+
     private static void Save(SKBitmap bitmap, string path)
     {
         using var image = SKImage.FromBitmap(bitmap);

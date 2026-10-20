@@ -17,6 +17,9 @@ public enum ToolKind
     Rectangle = 12,
     Line = 13,
     Text = 14,
+
+    /// <summary>自由笔画（随意写画）。</summary>
+    Freehand = 15,
 }
 
 /// <summary>工具 → 图标 Id（仅 Point 类工具）。</summary>
@@ -42,6 +45,7 @@ public static class ToolKinds
         ToolKind.Rectangle => MarkerType.Rectangle,
         ToolKind.Line => MarkerType.Line,
         ToolKind.Text => MarkerType.Text,
+        ToolKind.Freehand => MarkerType.Stroke,
         _ => MarkerType.Point,
     };
 
@@ -58,6 +62,7 @@ public static class ToolKinds
         ToolKind.Rectangle => "方框",
         ToolKind.Line => "直线",
         ToolKind.Text => "文本",
+        ToolKind.Freehand => "画笔",
         _ => tool.ToString(),
     };
 }
@@ -83,8 +88,11 @@ public sealed class RenderScene
 
     public IconLibrary Icons { get; set; } = IconLibrary.Default;
 
-    /// <summary>鼠标当前所在网格标签（如 "C3"），用于高亮。</summary>
+    /// <summary>鼠标当前所在网格标签（如 "C3" 或 "D5:A3:E1:A1"），用于状态栏。</summary>
     public string? HoverGridLabel { get; set; }
+
+    /// <summary>鼠标的归一化坐标（用于网格高亮），null 表示不在图上。</summary>
+    public MapPoint? HoverPoint { get; set; }
 
     /// <summary>背景色。</summary>
     public SkiaSharp.SKColor BackdropColor { get; set; } = new(0xFF1B1D22);

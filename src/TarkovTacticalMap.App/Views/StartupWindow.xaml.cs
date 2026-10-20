@@ -26,8 +26,7 @@ public partial class StartupWindow : Window
         HostPortBox.Text = settings.LastPort.ToString();
         JoinPortBox.Text = settings.LastPort.ToString();
         JoinHostBox.Text = settings.LastHostIp;
-        HostColsBox.Text = "8";
-        HostRowsBox.Text = "6";
+        HostDensityBox.Text = settings.GridDensity.ToString();
 
         Loaded += async (_, _) => await RefreshAddressesAsync();
     }
@@ -106,9 +105,8 @@ public partial class StartupWindow : Window
             StatusText.Text = "端口必须是 1~65535 的整数。";
             return;
         }
-        if (!TryParseGrid(HostColsBox.Text, HostRowsBox.Text, out var cols, out var rows))
-        {
-            StatusText.Text = "网格行列数必须是 1~26 的整数。";
+        if (!TryParseDensity(HostDensityBox.Text, out var density))        {
+            StatusText.Text = "网格密度必须是 2~26 的整数。";
             return;
         }
 
@@ -132,8 +130,7 @@ public partial class StartupWindow : Window
             ImageHeight = height,
             Port = port,
             RoomPassword = HostPasswordBox.Password,
-            GridCols = cols,
-            GridRows = rows,
+            GridDensity = density,
         };
 
         SetBusy(true, "正在启动房间（如弹出防火墙提示请允许）…");
@@ -229,8 +226,7 @@ public partial class StartupWindow : Window
             ImageBytes = bytes,
             ImageWidth = width,
             ImageHeight = height,
-            GridCols = 8,
-            GridRows = 6,
+            GridDensity = _settings.GridDensity,
         };
 
         try
@@ -271,10 +267,6 @@ public partial class StartupWindow : Window
     private static bool TryParsePort(string text, out int port)
         => int.TryParse(text.Trim(), out port) && port is >= 1 and <= 65535;
 
-    private static bool TryParseGrid(string colsText, string rowsText, out int cols, out int rows)
-    {
-        rows = 6;
-        return int.TryParse(colsText.Trim(), out cols) && cols is >= 1 and <= 26 &&
-               int.TryParse(rowsText.Trim(), out rows) && rows is >= 1 and <= 26;
-    }
+    private static bool TryParseDensity(string text, out int density)
+        => int.TryParse(text.Trim(), out density) && density is >= 2 and <= TarkovTacticalMap.Core.Models.MapInfo.MaxGrid;
 }

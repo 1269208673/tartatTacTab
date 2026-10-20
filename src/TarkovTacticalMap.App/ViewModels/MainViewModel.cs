@@ -69,6 +69,13 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ViewportState Viewport { get; } = new();
 
+    /// <summary>撤销 / 重做历史（只含本机用户的编辑）。</summary>
+    public MarkerHistory History { get; } = new();
+
+    public bool CanUndo => History.CanUndo;
+
+    public bool CanRedo => History.CanRedo;
+
     public ObservableCollection<ToolButtonViewModel> Tools { get; } = new();
 
     public ObservableCollection<string> Swatches { get; } = new();
@@ -90,6 +97,9 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>鼠标所在网格标签（用于高亮）。</summary>
     public string? HoverGridLabel { get; set; }
 
+    /// <summary>鼠标的归一化坐标（用于网格高亮），不在图上时为 null。</summary>
+    public MapPoint? HoverPoint { get; set; }
+
     // ── 可绑定状态 ──────────────────────────────────────────────────────
 
     [ObservableProperty]
@@ -100,6 +110,10 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private float _currentSize = MarkerDefaults.PointSize;
+
+    /// <summary>新建标记的默认粗细（描边 / 线宽，相对图宽）。</summary>
+    [ObservableProperty]
+    private float _currentThickness = MarkerDefaults.DefaultThickness;
 
     [ObservableProperty]
     private string? _selectedMarkerId;
@@ -133,6 +147,17 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private double _selectionSize;
+
+    /// <summary>选中标记的粗细（仅箭头 / 圆 / 直线 / 方框 / 笔画适用）。</summary>
+    [ObservableProperty]
+    private double _selectionThickness;
+
+    [ObservableProperty]
+    private bool _canEditThickness;
+
+    /// <summary>当前缩放下的嵌套网格引用（如 D5:A3:E1:A1）。</summary>
+    [ObservableProperty]
+    private string _gridDepthText = "";
 
     [ObservableProperty]
     private double _selectionRotation;
@@ -186,14 +211,20 @@ public sealed partial class MainViewModel : ObservableObject
     public void SelectTool(ToolKind kind)
     {
         ActiveTool = kind;
-        if (!ToolKinds.IsPointTool(kind) && kind != ToolKind.Select)
-        {
-            CurrentSize = MarkerDefaults.DefaultSizeFor(ToolKinds.MarkerTypeOf(kind));
-        }
-        else if (ToolKinds.IsPointTool(kind))
+        var type = ToolKinds.MarkerTypeOf(kind);
+
+        if (ToolKinds.IsPointTool(kind))
         {
             CurrentSize = _settings.DefaultPointSize > 0 ? _settings.DefaultPointSize : MarkerDefaults.PointSize;
         }
+        else if (kind != ToolKind.Select)
+        {
+            CurrentSize = MarkerDefaults.DefaultSizeFor(type);
+        }
+
+        var thickness = MarkerDefaults.DefaultThicknessFor(type);
+        if (thickness > 0f) CurrentThickness = thickness;
+
         SetStatus($"当前工具：{ToolKinds.LabelOf(kind)}");
     }
 
@@ -213,6 +244,13 @@ public sealed partial class MainViewModel : ObservableObject
         }
         CurrentColor = normalized;
         if (SelectedMarker is { } marker && CanEditSelection) SetSelectionColor(normalized);
+    }
+
+    /// <summary>工具栏「粗细」滑块：选中可编辑标记时直接改该标记的粗细。</summary>
+    public void ApplyCurrentThicknessToSelection()
+    {
+        if (!CanEditThickness) return;
+        CommitSelection(m => m.Thickness = CurrentThickness);
     }
 
     // ── 会话接入 ────────────────────────────────────────────────────────
@@ -243,6 +281,8 @@ public sealed partial class MainViewModel : ObservableObject
             _markers.AddRange(snapshot);
             Draft = null;
             SelectedMarkerId = null;
+            History.Clear();
+            NotifyHistory();
             RefreshMapState();
             DecodeBackground();
             RefreshPlayers();
@@ -288,6 +328,8 @@ public sealed partial class MainViewModel : ObservableObject
             _markers.Clear();
             Draft = null;
             SelectedMarkerId = null;
+            History.Clear();
+            NotifyHistory();
             Players.Clear();
             SetBackground(null);
             MapTitle = "（未加载地图）";
@@ -354,6 +396,8 @@ public sealed partial class MainViewModel : ObservableObject
             }
             Draft = null;
             if (SelectedMarkerId is not null && _markers.All(m => m.Id != SelectedMarkerId)) SelectedMarkerId = null;
+            History.Clear(); // 重连后快照重建，旧的历史不再适用
+            NotifyHistory();
             SetStatus("已用房主的全量快照重建本地状态");
         });
     }
@@ -566,6 +610,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             SelectionTypeText = "";
             CanEditSelection = false;
+            CanEditThickness = false;
             return;
         }
 
@@ -575,9 +620,11 @@ public sealed partial class MainViewModel : ObservableObject
             SelectionTypeText = DescribeMarker(marker);
             SelectionColorText = ColorHex.Normalize(marker.Color) ?? marker.Color;
             SelectionSize = Math.Round(marker.Size, 4);
+            SelectionThickness = Math.Round(marker.Thickness > 0 ? marker.Thickness : MarkerDefaults.DefaultThicknessFor(marker.Type), 4);
             SelectionRotation = Math.Round(marker.Rotation, 1);
             SelectionText = marker.Text ?? string.Empty;
             CanEditSelection = _session?.CanModify(marker) ?? false;
+            CanEditThickness = CanEditSelection && marker.UsesThickness;
         }
         finally
         {
@@ -603,6 +650,7 @@ public sealed partial class MainViewModel : ObservableObject
             MarkerType.Line => "直线",
             MarkerType.Circle => "圆圈",
             MarkerType.Rectangle => "方框",
+            MarkerType.Stroke => $"自由笔画（{marker.PointCount} 点）",
             _ => "未知类型",
         };
     }
@@ -617,6 +665,12 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (_suppressSelectionSync) return;
         CommitSelection(m => m.Size = (float)value);
+    }
+
+    partial void OnSelectionThicknessChanged(double value)
+    {
+        if (_suppressSelectionSync) return;
+        CommitSelection(m => m.Thickness = (float)value);
     }
 
     partial void OnSelectionRotationChanged(double value)
@@ -651,18 +705,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         var clone = marker.Clone();
         mutate(clone);
-        _ = CommitMarkerAsync(clone);
-    }
-
-    private async Task CommitMarkerAsync(Marker marker)
-    {
-        var session = _session;
-        if (session is null) return;
-        var result = await session.UpdateMarkerAsync(marker).ConfigureAwait(false);
-        if (result.Outcome is MutationOutcome.PermissionDenied or MutationOutcome.Invalid or MutationOutcome.NotFound)
-        {
-            Post(() => SetStatus($"修改未生效：{DescribeMutation(result.Outcome)}"));
-        }
+        _ = UpdateMarkerAsync(clone);
     }
 
     private static string DescribeMutation(MutationOutcome outcome) => outcome switch
@@ -700,6 +743,7 @@ public sealed partial class MainViewModel : ObservableObject
             X = MarkerValidator.Clamp01(normalized.X),
             Y = MarkerValidator.Clamp01(normalized.Y),
             Size = CurrentSize > 0 ? CurrentSize : MarkerDefaults.DefaultSizeFor(type),
+            Thickness = CurrentThickness > 0 ? CurrentThickness : MarkerDefaults.DefaultThicknessFor(type),
             Color = CurrentColor,
             Rotation = 0f,
             IconId = ToolKinds.IconIdOf(tool),
@@ -716,8 +760,12 @@ public sealed partial class MainViewModel : ObservableObject
                 marker.EndY = marker.Y;
                 break;
             case MarkerType.Arrow:
-                marker.Size = CurrentSize > 0 && CurrentSize > 0.01f ? CurrentSize : MarkerDefaults.ArrowSize;
+                marker.Size = CurrentSize > 0 ? CurrentSize : MarkerDefaults.ArrowSize;
                 marker.Rotation = 0f;
+                break;
+            case MarkerType.Stroke:
+                marker.Size = marker.Thickness;
+                marker.Points = new[] { new MarkerPoint(marker.X, marker.Y), new MarkerPoint(marker.X, marker.Y) };
                 break;
         }
 
@@ -734,19 +782,63 @@ public sealed partial class MainViewModel : ObservableObject
             Post(() => SetStatus($"新增标记失败：{DescribeMutation(result.Outcome)}"));
             return;
         }
-        Post(() => SelectedMarkerId = marker.Id);
+
+        Post(() =>
+        {
+            var authoritative = FindMarker(marker.Id) ?? marker;
+            History.RecordAdd(authoritative);
+            NotifyHistory();
+            SelectedMarkerId = marker.Id;
+            SyncSelection();
+        });
     }
 
     public async Task UpdateMarkerAsync(Marker marker)
     {
         var session = _session;
         if (session is null) return;
+
+        var before = FindMarker(marker.Id)?.Clone();
+        var previousThickness = before?.Thickness ?? 0f;
+
         var result = await session.UpdateMarkerAsync(marker).ConfigureAwait(false);
-        if (result.Outcome is not (MutationOutcome.Applied or MutationOutcome.Ignored or MutationOutcome.Sent))
+        if (result.Outcome is MutationOutcome.PermissionDenied or MutationOutcome.Invalid or MutationOutcome.NotFound)
         {
             Post(() => SetStatus($"修改未生效：{DescribeMutation(result.Outcome)}"));
+            return;
         }
+
+        Post(() =>
+        {
+            // 记录历史：Before 用本地当前状态，After 用本次提交的完整对象
+            var after = marker.Clone();
+            if (before is null)
+            {
+                var stored = FindMarker(marker.Id);
+                if (stored is not null) History.RecordUpdate(stored, after);
+            }
+            else
+            {
+                if (MathF.Abs(previousThickness - after.Thickness) > 1e-5f || PreviousDiffers(before, after))
+                {
+                    History.RecordUpdate(before, after);
+                }
+            }
+            NotifyHistory();
+            if (string.Equals(marker.Id, SelectedMarkerId, StringComparison.Ordinal)) SyncSelection();
+        });
     }
+
+    private static bool PreviousDiffers(Marker before, Marker after)
+        => MathF.Abs(before.X - after.X) > 1e-5f
+           || MathF.Abs(before.Y - after.Y) > 1e-5f
+           || MathF.Abs(before.Size - after.Size) > 1e-5f
+           || MathF.Abs(before.Rotation - after.Rotation) > 1e-5f
+           || MathF.Abs(before.EndX - after.EndX) > 1e-5f
+           || MathF.Abs(before.EndY - after.EndY) > 1e-5f
+           || !string.Equals(before.Color, after.Color, StringComparison.Ordinal)
+           || !string.Equals(before.Text, after.Text, StringComparison.Ordinal)
+           || before.PointCount != after.PointCount;
 
     public async Task<bool> DeleteMarkerAsync(string id)
     {
@@ -764,6 +856,15 @@ public sealed partial class MainViewModel : ObservableObject
         {
             Post(() => SetStatus($"删除失败：{DescribeMutation(result.Outcome)}"));
             return false;
+        }
+
+        if (marker is not null)
+        {
+            Post(() =>
+            {
+                History.RecordDelete(marker);
+                NotifyHistory();
+            });
         }
         return true;
     }
@@ -806,6 +907,117 @@ public sealed partial class MainViewModel : ObservableObject
         return deleted;
     }
 
+    // ── 撤销 / 重做 ──────────────────────────────────────────────────────
+
+    private void NotifyHistory()
+    {
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+    }
+
+    /// <summary>撤销上一步本机编辑（Ctrl+Z）。</summary>
+    public async Task<bool> UndoAsync()
+    {
+        var edit = History.PopUndo();
+        if (edit is null)
+        {
+            SetStatus("没有可撤销的操作");
+            return false;
+        }
+
+        var ok = await ApplyEditAsync(edit, forward: false).ConfigureAwait(false);
+        if (ok)
+        {
+            History.PushRedo(edit);
+            Post(() =>
+            {
+                NotifyHistory();
+                SetStatus($"已撤销：{edit.Label}");
+            });
+        }
+        else
+        {
+            History.PushUndo(edit);
+            Post(() => SetStatus("撤销未生效（可能无权限或标记已不存在）"));
+        }
+        return ok;
+    }
+
+    /// <summary>重做被撤销的一步（Ctrl+Y）。</summary>
+    public async Task<bool> RedoAsync()
+    {
+        var edit = History.PopRedo();
+        if (edit is null)
+        {
+            SetStatus("没有可重做的操作");
+            return false;
+        }
+
+        var ok = await ApplyEditAsync(edit, forward: true).ConfigureAwait(false);
+        if (ok)
+        {
+            History.PushUndo(edit);
+            Post(() =>
+            {
+                NotifyHistory();
+                SetStatus($"已重做：{edit.Label}");
+            });
+        }
+        else
+        {
+            History.PushRedo(edit);
+            Post(() => SetStatus("重做未生效（可能无权限或标记已不存在）"));
+        }
+        return ok;
+    }
+
+    /// <summary>应用一条历史的「正向」或「反向」操作，不记录新的历史。</summary>
+    private async Task<bool> ApplyEditAsync(MarkerEdit edit, bool forward)
+    {
+        var session = _session;
+        if (session is null) return false;
+
+        switch (edit.Kind)
+        {
+            case MarkerEditKind.Add:
+            {
+                var marker = forward ? edit.After : edit.After;
+                if (marker is null) return false;
+                if (forward)
+                {
+                    var result = await session.AddMarkerAsync(marker.Clone()).ConfigureAwait(false);
+                    return IsApplied(result.Outcome);
+                }
+                var delete = await session.DeleteMarkerAsync(marker.Id).ConfigureAwait(false);
+                return IsApplied(delete.Outcome) || delete.Outcome == MutationOutcome.Ignored;
+            }
+            case MarkerEditKind.Delete:
+            {
+                var marker = edit.Before;
+                if (marker is null) return false;
+                if (forward)
+                {
+                    var result = await session.DeleteMarkerAsync(marker.Id).ConfigureAwait(false);
+                    return IsApplied(result.Outcome) || result.Outcome == MutationOutcome.Ignored;
+                }
+                var add = await session.AddMarkerAsync(marker.Clone()).ConfigureAwait(false);
+                return IsApplied(add.Outcome);
+            }
+            case MarkerEditKind.Update:
+            {
+                var marker = forward ? edit.After : edit.Before;
+                if (marker is null) return false;
+                var result = await session.UpdateMarkerAsync(marker.Clone()).ConfigureAwait(false);
+                return IsApplied(result.Outcome);
+            }
+            default:
+                return false;
+        }
+    }
+
+    private static bool IsApplied(MutationOutcome outcome)
+        => outcome is MutationOutcome.Applied or MutationOutcome.Sent or MutationOutcome.Ignored;
+
     // ── 视图 ────────────────────────────────────────────────────────────
 
     public void ResetView()
@@ -821,10 +1033,14 @@ public sealed partial class MainViewModel : ObservableObject
         SetStatus(IsGridVisible ? "已显示网格" : "已隐藏网格");
     }
 
-    public void SetGridSize(int cols, int rows)
+    public void SetGridDensity(int density)
     {
-        _session?.SetGrid(cols, rows);
-        SetStatus($"网格已设为 {cols}×{rows}（仅本机视图，不参与存储）");
+        _session?.SetGridDensity(density);
+        var map = _session?.Map;
+        if (map is not null)
+        {
+            SetStatus($"一级网格密度 {density}：{map.GridCols}×{map.GridRows} 格（按图片比例，仅本机视图）");
+        }
     }
 
     public void SetStatus(string message)
@@ -832,7 +1048,7 @@ public sealed partial class MainViewModel : ObservableObject
         StatusText = message;
     }
 
-    /// <summary>更新鼠标相关的状态栏信息。</summary>
+    /// <summary>更新鼠标相关的状态栏信息（含嵌套网格引用）。</summary>
     public void UpdateHover(float screenX, float screenY)
     {
         var map = _session?.Map;
@@ -841,13 +1057,20 @@ public sealed partial class MainViewModel : ObservableObject
         if (!inside || map is null)
         {
             HoverGridLabel = null;
+            HoverPoint = null;
             GridLabel = "—";
+            GridDepthText = "";
             CoordinateText = "—";
             return;
         }
 
-        HoverGridLabel = GridReference.GetLabel(normalized.X, normalized.Y, map.GridCols, map.GridRows);
+        var specs = NestedGrid.BuildSpecs(map);
+        var depth = NestedGrid.GetVisibleDepth(specs, Viewport);
+        HoverGridLabel = NestedGrid.GetReference(normalized.X, normalized.Y, specs, depth);
+        HoverPoint = normalized;
         GridLabel = HoverGridLabel ?? "—";
+        GridDepthText = depth > 1 ? $"L{depth}" : "";
+
         var px = (int)MathF.Round(normalized.X * map.ImageWidth);
         var py = (int)MathF.Round(normalized.Y * map.ImageHeight);
         CoordinateText = $"X {normalized.X:F3}  Y {normalized.Y:F3}  ({px}, {py}px)";

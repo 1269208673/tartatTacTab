@@ -12,15 +12,18 @@ public enum MarkerType
     /// <summary>文本，(X, Y) 为文本左上角。</summary>
     Text = 1,
 
-    /// <summary>箭头，(X, Y) 为箭尾，Rotation 为方向，Size 为长度。</summary>
+    /// <summary>箭头，(X, Y) 为箭尾，Rotation 为方向，Size 为长度，Thickness 为杆粗。</summary>
     Arrow = 2,
 
-    /// <summary>直线段，(X, Y) 为起点，(EndX, EndY) 为终点。</summary>
+    /// <summary>直线段，(X, Y) 为起点，(EndX, EndY) 为终点，Thickness 为线宽。</summary>
     Line = 3,
 
-    /// <summary>圆，(X, Y) 为圆心，Size 为半径。</summary>
+    /// <summary>圆，(X, Y) 为圆心，Size 为半径，Thickness 为描边粗细。</summary>
     Circle = 4,
 
-    /// <summary>方框，(X, Y) 与 (EndX, EndY) 为对角。</summary>
+    /// <summary>方框，(X, Y) 与 (EndX, EndY) 为对角，Thickness 为描边粗细。</summary>
     Rectangle = 5,
+
+    /// <summary>自由笔画：Points 为归一化折线点，Thickness 为线宽。</summary>
+    Stroke = 6,
 }

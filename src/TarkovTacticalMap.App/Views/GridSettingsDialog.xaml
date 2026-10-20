@@ -1,26 +1,22 @@
 <Window x:Class="TarkovTacticalMap.App.Views.GridSettingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="网格行列数" Height="220" Width="340"
+        Title="网格设置" Height="300" Width="430"
         Background="{StaticResource WindowBg}"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize">
     <StackPanel Margin="16">
-        <TextBlock Text="网格仅作为视觉参考，标记坐标始终使用归一化值存储。" TextWrapping="Wrap"
-                   Foreground="{StaticResource TextSecondary}" />
-        <Grid Margin="0,10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="列数：" VerticalAlignment="Center" />
-            <TextBox Grid.Column="1" x:Name="ColsBox" Margin="4,0,12,0" />
-            <TextBlock Grid.Column="2" Text="行数：" VerticalAlignment="Center" />
-            <TextBox Grid.Column="3" x:Name="RowsBox" Margin="4,0,0,0" />
-        </Grid>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+        <TextBlock Text="网格只是视觉参考，标记坐标始终用归一化值存储。"
+                   TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}" />
+        <TextBlock Text="一级网格的格子保持接近正方形，行列数按图片宽高比自动推导。"
+                   TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0" />
+
+        <TextBlock Text="一级网格密度（每边最多格数，2~10；列 A~J、行 0~9）" Style="{StaticResource SectionTitle}" />
+        <TextBox x:Name="DensityBox" Width="80" HorizontalAlignment="Left" />
+        <TextBlock x:Name="ImageInfoText" Margin="0,6,0,0" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap" />
+        <TextBlock x:Name="PreviewText" Margin="0,8,0,0" Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button Content="取消" Width="80" Click="OnCancelClick" />
             <Button Content="确定" Width="80" Click="OnOkClick" />
         </StackPanel>

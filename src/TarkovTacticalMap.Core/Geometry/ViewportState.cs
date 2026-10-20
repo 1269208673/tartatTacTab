@@ -13,7 +13,9 @@ namespace TarkovTacticalMap.Core.Geometry;
 public sealed class ViewportState
 {
     public const float MinZoom = 0.2f;
-    public const float MaxZoom = 10f;
+
+    /// <summary>最大缩放：放得足够大才能看到更深层的嵌套网格。</summary>
+    public const float MaxZoom = 40f;
 
     /// <summary>画布（可视区）宽度，像素。</summary>
     public float CanvasWidth { get; set; }
@@ -61,6 +63,9 @@ public sealed class ViewportState
 
     /// <summary>图片当前显示宽度（像素），Size 归一化值乘它得到像素尺寸。</summary>
     public float DisplayWidth => ImageRect.Width;
+
+    /// <summary>图片当前显示高度（像素）。</summary>
+    public float DisplayHeight => ImageRect.Height;
 
     public void ResetView()
     {

@@ -69,7 +69,6 @@ public class GeometryTests
         vp.ZoomAt(500f, 300f, requested);
         Assert.Equal(expected, vp.Zoom, 4);
     }
-
     [Fact]
     public void MarkerScreenPosition_StaysCorrectAfterZoomAndResize()
     {
@@ -113,12 +112,21 @@ public class GeometryTests
     [Fact]
     public void GridReference_ComputesCellLabel()
     {
-        // 8 列 6 行：x=0.31 → floor(2.48)=2 → C；y=0.42 → floor(2.52)=2 → 3
-        Assert.Equal("C3", GridReference.GetLabel(0.31f, 0.42f, 8, 6));
+        // 8 列 6 行、行标签从 0 开始：x=0.31 → floor(2.48)=2 → C；y=0.42 → floor(2.52)=2 → 2
+        Assert.Equal("C2", GridReference.GetLabel(0.31f, 0.42f, 8, 6));
 
         // 边界值
-        Assert.Equal("A1", GridReference.GetLabel(0f, 0f, 8, 6));
-        Assert.Equal("H6", GridReference.GetLabel(1f, 1f, 8, 6));
+        Assert.Equal("A0", GridReference.GetLabel(0f, 0f, 8, 6));
+        Assert.Equal("H5", GridReference.GetLabel(1f, 1f, 8, 6));
+    }
+
+    [Fact]
+    public void GridReference_RowLabelsStartAtZero()
+    {
+        Assert.Equal("0", GridReference.RowLabel(0));
+        Assert.Equal("9", GridReference.RowLabel(9));
+        Assert.Equal("A0", GridReference.GetLabel(0.01f, 0.01f, 10, 10));
+        Assert.Equal("J9", GridReference.GetLabel(0.999f, 0.999f, 10, 10));
     }
 
     [Fact]
@@ -174,8 +182,93 @@ public class GeometryTests
         Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Rectangle, EndX = 0.6f, EndY = 0.6f }, vp));
         Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Arrow, Size = 0.1f }, vp));
         Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Line, EndX = 0.6f, EndY = 0.6f }, vp));
-        Assert.Empty(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Point }, vp));
-        Assert.Empty(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Text }, vp));
+
+        // 图标点与文本提供「大小」控制点（放置后可继续调整大小）
+        var pointHandle = Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Point, Size = 0.02f }, vp));
+        Assert.Equal(HandleKind.Size, pointHandle.Kind);
+        var textHandle = Assert.Single(MarkerGeometry.GetHandles(new Marker { Type = MarkerType.Text, Size = 0.03f, Text = "abc" }, vp));
+        Assert.Equal(HandleKind.Size, textHandle.Kind);
+
+        // 笔画没有控制点（粗细用面板 / 工具栏调整）
+        Assert.Empty(MarkerGeometry.GetHandles(new Marker
+        {
+            Type = MarkerType.Stroke,
+            Points = new[] { new MarkerPoint(0.1f, 0.1f), new MarkerPoint(0.2f, 0.2f) },
+        }, vp));
+    }
+
+    [Fact]
+    public void ArrowThickness_DoesNotGrowWithLength()
+    {
+        var vp = NewViewport();
+        var shortArrow = new Marker { Type = MarkerType.Arrow, X = 0.2f, Y = 0.2f, Size = 0.05f, Thickness = 0.005f };
+        var longArrow = new Marker { Type = MarkerType.Arrow, X = 0.2f, Y = 0.2f, Size = 0.5f, Thickness = 0.005f };
+
+        var shortWidth = MarkerGeometry.GetStrokeWidthPixels(shortArrow, vp);
+        var longWidth = MarkerGeometry.GetStrokeWidthPixels(longArrow, vp);
+
+        // 杆粗只取决于 Thickness，与长度无关
+        Assert.Equal(shortWidth, longWidth, 4);
+        Assert.Equal(0.005f * vp.DisplayWidth, longWidth, 3);
+    }
+
+    [Fact]
+    public void StrokeWidth_FallsBackToLegacyRulesWhenThicknessIsZero()
+    {
+        var vp = NewViewport();
+        var circle = new Marker { Type = MarkerType.Circle, Size = 0.2f };
+        Assert.Equal(MathF.Min(2f, 0.2f * vp.DisplayWidth * 0.1f), MarkerGeometry.GetStrokeWidthPixels(circle, vp), 3);
+
+        var line = new Marker { Type = MarkerType.Line, Size = 0.004f };
+        Assert.Equal(0.004f * vp.DisplayWidth, MarkerGeometry.GetStrokeWidthPixels(line, vp), 3);
+    }
+
+    [Fact]
+    public void StrokeMarker_HitTestAndBoundsFollowPolyline()
+    {
+        var vp = NewViewport();
+        var stroke = new Marker
+        {
+            Type = MarkerType.Stroke,
+            Thickness = 0.005f,
+            Points = new[]
+            {
+                new MarkerPoint(0.1f, 0.1f),
+                new MarkerPoint(0.5f, 0.1f),
+                new MarkerPoint(0.5f, 0.5f),
+            },
+        };
+
+        Assert.True(MarkerGeometry.HitTest(stroke, vp.NormalizedToScreen(0.3f, 0.1f), vp));
+        Assert.True(MarkerGeometry.HitTest(stroke, vp.NormalizedToScreen(0.5f, 0.3f), vp));
+        Assert.False(MarkerGeometry.HitTest(stroke, vp.NormalizedToScreen(0.9f, 0.9f), vp));
+
+        var bounds = MarkerGeometry.GetScreenBounds(stroke, vp);
+        var topLeft = vp.NormalizedToScreen(0.1f, 0.1f);
+        var bottomRight = vp.NormalizedToScreen(0.5f, 0.5f);
+        Assert.True(bounds.Left <= topLeft.X);
+        Assert.True(bounds.Top <= topLeft.Y);
+        Assert.True(bounds.Right >= bottomRight.X);
+        Assert.True(bounds.Bottom >= bottomRight.Y);
+    }
+
+    [Fact]
+    public void SizeHandle_ComputesSizeForIconAndText()
+    {
+        var vp = NewViewport();
+        var point = new Marker { Type = MarkerType.Point, X = 0.5f, Y = 0.5f, Size = 0.02f };
+        var anchor = vp.NormalizedToScreen(0.5f, 0.5f);
+
+        // 从中心向右上拖到 40px 处 → 图标宽度 80px
+        var dragged = new MapPoint(anchor.X + 40f, anchor.Y - 40f);
+        var size = MarkerGeometry.ComputeSizeFromHandle(point, dragged, vp);
+        Assert.Equal(80f / vp.DisplayWidth, size, 4);
+
+        var text = new Marker { Type = MarkerType.Text, X = 0.2f, Y = 0.2f, Size = 0.03f, Text = "abc" };
+        var textAnchor = vp.NormalizedToScreen(0.2f, 0.2f);
+        var textDragged = new MapPoint(textAnchor.X + 10f, textAnchor.Y + 27f);
+        var fontPx = MarkerGeometry.ComputeSizeFromHandle(text, textDragged, vp) * vp.DisplayWidth;
+        Assert.Equal(20f, fontPx, 1); // 27 / 1.35 = 20
     }
 
     [Fact]

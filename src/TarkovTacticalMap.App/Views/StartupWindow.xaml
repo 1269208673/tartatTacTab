@@ -45,12 +45,8 @@
                     <TextBlock x:Name="HostImageText" Text="未选择（将使用空白网格）" Foreground="{StaticResource TextSecondary}"
                                TextTrimming="CharacterEllipsis" Margin="2,2,0,0" />
 
-                    <TextBlock Text="网格列 / 行（默认 8 / 6）" Style="{StaticResource SectionTitle}" />
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="HostColsBox" Width="60" />
-                        <TextBlock Text=" × " VerticalAlignment="Center" />
-                        <TextBox x:Name="HostRowsBox" Width="60" />
-                    </StackPanel>
+                    <TextBlock Text="网格密度（一级网格每边最多格数，行列按图片比例自动）" Style="{StaticResource SectionTitle}" />
+                    <TextBox x:Name="HostDensityBox" />
 
                     <Button Content="创建房间" Margin="0,14,0,0" Height="32" Click="OnCreateRoomClick"
                             Background="#1F3A4A" BorderBrush="{StaticResource AccentBrush}" />

@@ -31,8 +31,7 @@ public partial class App : Application
             var offlineConfig = new SessionConfig
             {
                 PlayerName = Settings.PlayerName,
-                GridCols = 8,
-                GridRows = 6,
+                GridDensity = Settings.GridDensity,
             };
             var offline = TacticalSession.CreateOfflineAsync(offlineConfig, Cache).GetAwaiter().GetResult();
             ShowMainWindow(offline);
